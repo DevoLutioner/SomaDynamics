@@ -74,6 +74,10 @@ if (-not $SkipTests) {
 if ($LASTEXITCODE -ne 0) {
     throw "Build failed with exit code $LASTEXITCODE"
 }
+$builtVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($outputDll).FileVersion
+if ($builtVersion -ne $Version) {
+    throw "Built DLL file version '$builtVersion' does not match package version '$Version'."
+}
 
 if (Test-Path $staging) {
     if (-not $Force) {

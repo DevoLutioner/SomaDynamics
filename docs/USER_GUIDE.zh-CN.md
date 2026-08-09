@@ -256,5 +256,5 @@ MMD 旋转与方向轴拖动的输入不同，静态拖动不能完全代表舞�
 
 项目主页：
 
-- Soma Dynamics: <https://github.com/DevoLutioner/FleshPhysicsController>
+- Soma Dynamics: <https://github.com/DevoLutioner/SomaDynamics>
 - MMD DynamicBone Stabilizer: <https://github.com/DevoLutioner/MmdDynamicBoneStabilizer>
