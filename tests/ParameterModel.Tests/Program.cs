@@ -13,6 +13,9 @@ internal static class Program
         try
         {
             TestDefaultBaselines();
+            TestNativeBodyDefaults();
+            TestNativeBodyTargets();
+            TestNativeBustProfilePersistence();
             TestStrengthRoundTrip();
             TestSoftnessRoundTripAndMonotonicity();
             TestFeelPresets();
@@ -32,13 +35,133 @@ internal static class Program
 
     private static void TestDefaultBaselines()
     {
-        Equal(56, ThighParams.DataVersion, "data version");
+        Equal(61, ThighParams.DataVersion, "data version");
         AssertBaseline(FleshPartId.Thigh, 0.90f, 0.04f, 0.05f, 0.85f, 0.80f, 0.20f,
             new[] { 1f, 0.8f, 0.3f, 0.3f });
         AssertBaseline(FleshPartId.Arm, 0.70f, 0.05f, 0.25f, 0.90f, 0.80f, 0.15f,
             new[] { 2f, 0.6f, 0.6f, 0.072f });
         AssertBaseline(FleshPartId.Belly, 0.70f, 0.30f, 0.25f, 0.90f, 0.40f, 1.00f,
             new[] { 0.25f, 0.20f, 0.125f, 0.03f });
+    }
+
+    private static void TestNativeBodyDefaults()
+    {
+        foreach (FleshPartId part in new[] { FleshPartId.Breast, FleshPartId.Butt })
+        {
+            NativeBodyParams value = NativeBodyParams.CreateDefault(part);
+            True(value.Enabled, part + " native enabled");
+            Near(0.5f, value.Strength, part + " BPC Soft target strength midpoint");
+            Near(0.75f, value.Softness, part + " BPC Soft softness pivot");
+            Near(0.5f, value.MotionResponse, part + " BPC Soft motion midpoint");
+            Near(0f, value.Gravity, part + " BPC Soft gravity");
+            PluginData card = new PluginData();
+            NativeBodyParams.WritePart(card.data, "native_", value);
+            True(!card.data.ContainsKey("native_springMode"),
+                part + " removed spring mode is not serialized");
+            True(!card.data.ContainsKey("native_spring_enabled"),
+                part + " removed spring parameters are not serialized");
+            card.data["native_strength"] = 7f;
+            card.data["native_softness"] = -2f;
+            card.data["native_response"] = float.NaN;
+            card.data["native_gravity"] = 9f;
+            NativeBodyParams loaded = NativeBodyParams.CreateDefault(part);
+            NativeBodyParams.ReadPart(card.data, "native_", loaded);
+            Near(2f, loaded.Strength, part + " strength clamp");
+            Near(0f, loaded.Softness, part + " softness clamp");
+            Near(0.5f, loaded.MotionResponse, part + " response finite fallback");
+            Near(0.003f, loaded.Gravity, part + " gravity clamp");
+        }
+    }
+
+    private static void TestNativeBustProfilePersistence()
+    {
+        NativeBustProfile profile = new NativeBustProfile();
+        profile.Bra[3].AdvancedOverride = true;
+        profile.Bra[3].Bone1.Set(false, 0.11f, 0.22f, 0.33f, 0.44f);
+        profile.Tops[5].Softness = 0.91f;
+        PluginData card = new PluginData();
+        NativeBustProfile.Write(card.data, "breast_", profile);
+        NativeBustProfile loaded = new NativeBustProfile();
+        NativeBustProfile.Read(card.data, "breast_", loaded, 61);
+        True(loaded.Bra[3].AdvancedOverride, "bust advanced override persisted");
+        True(!loaded.Bra[3].Bone1.IsRotationCalc, "bust rotation flag persisted");
+        Near(0.11f, loaded.Bra[3].Bone1.Damping, "bust damping persisted");
+        Near(0.22f, loaded.Bra[3].Bone1.Elasticity, "bust elasticity persisted");
+        Near(0.33f, loaded.Bra[3].Bone1.Stiffness, "bust stiffness persisted");
+        Near(0.44f, loaded.Bra[3].Bone1.Inert, "bust inert persisted");
+        Near(0.91f, loaded.Tops[5].Softness, "tops coordinate persisted");
+        Near(0.75f, loaded.Tops[4].Softness, "coordinate slots stay independent");
+
+        NativeBodyParams source = NativeBodyParams.CreateDefault(FleshPartId.Breast);
+        profile.SetAll(source);
+        profile.Bra[0].Bone1.Damping = 0.99f;
+        Near(0.05f, profile.Bra[1].Bone1.Damping, "set-all uses deep clones");
+        Near(0.05f, profile.Naked.Bone1.Damping, "naked state clone is independent");
+
+        PluginData legacy = new PluginData();
+        legacy.data["breast_softness"] = 0.42f;
+        NativeBustProfile migrated = new NativeBustProfile();
+        NativeBustProfile.Read(legacy.data, "breast_", migrated, 57);
+        Near(0.42f, migrated.Naked.Softness, "legacy naked migration");
+        Near(0.42f, migrated.Bra[6].Softness, "legacy bra migration");
+        Near(0.42f, migrated.Tops[6].Softness, "legacy tops migration");
+        Near(0.5f, migrated.Naked.Strength,
+            "missing legacy strength keeps current midpoint");
+        Near(0.5f, migrated.Naked.MotionResponse,
+            "missing legacy motion keeps current midpoint");
+
+        Dictionary<string, object> v58 = new Dictionary<string, object>();
+        v58["native_strength"] = 1f;
+        v58["native_response"] = 0f;
+        NativeBodyParams targetMigrated = NativeBodyParams.CreateDefault(FleshPartId.Butt);
+        NativeBodyParams.ReadPart(v58, "native_", targetMigrated, 58);
+        Near(0.5f, targetMigrated.Strength, "v58 BPC baseline becomes target midpoint");
+        Near(1f, targetMigrated.MotionResponse,
+            "v58 low inert request becomes high visible motion target");
+        True(NativeBodyTuning.NormalizeBoneName("cf_j_siri_R_01") == "cf_j_siri_L_01",
+            "right butt embedded side marker normalizes like BPC");
+        True(NativeBodyTuning.NormalizeBoneName("cf_d_siri01_R") == "cf_d_siri01_L",
+            "right butt suffix side marker normalizes like BPC");
+
+        float damping = 0.05f;
+        float elasticity = 0.08f;
+        float stiffness = 0.07f;
+        NativeBodyTuning.ApplyStrengthTarget(ref damping, ref elasticity, ref stiffness, 0.5f);
+        Near(0.05f, damping, "native target midpoint preserves BPC damping");
+        Near(0.08f, elasticity, "native target midpoint preserves BPC elasticity");
+        Near(0.07f, stiffness, "native target midpoint preserves BPC stiffness");
+        Near(0.5f, NativeBodyTuning.TargetInert(0.5f, 0.5f),
+            "native motion midpoint preserves BPC inert");
+        Near(0f, NativeBodyTuning.TargetInert(0.5f, 1f),
+            "higher native motion target creates maximum lag");
+        Near(0.8f, NativeBodyTuning.TargetInert(0.5f, 0f),
+            "lower native motion target follows the body");
+
+        float softAtOne = NativeBodyTuning.TuneSoftness(0.1f, 1f, 1.7f, 0.7f);
+        float softAtTwo = NativeBodyTuning.TuneSoftness(0.1f, 2f, 1.7f, 0.7f);
+        LessOrEqual(softAtTwo, softAtOne,
+            "enhanced native softness continues beyond natural maximum");
+        float motionDamping = 0.1f;
+        float motionElasticity = 0.1f;
+        float motionStiffness = 0.1f;
+        NativeBodyTuning.ApplyMotionTarget(ref motionDamping, ref motionElasticity,
+            ref motionStiffness, 2f);
+        LessOrEqual(motionDamping, 0.055f,
+            "enhanced native motion target lowers damping meaningfully");
+    }
+
+    private static void TestNativeBodyTargets()
+    {
+        foreach (FleshPartId part in new[] { FleshPartId.Breast, FleshPartId.Butt })
+        {
+            NativeBodyParams value = NativeBodyParams.CreateDefault(part);
+            NativeBodyTuning.SetTargets(value, part, 2f, 2f, 2f);
+            Near(2f, value.Strength, part + " enhanced strength target persists");
+            Near(2f, value.Softness, part + " enhanced softness target persists");
+            Near(2f, value.MotionResponse, part + " enhanced motion target persists");
+            True(!value.AdvancedOverride,
+                part + " target controls select recommended native mapping");
+        }
     }
 
     private static void AssertBaseline(FleshPartId part, float weight, float damping,
@@ -76,15 +199,23 @@ internal static class Program
             FleshTuning.SetStrength(p, 0.63f);
             Near(0.63f, FleshTuning.GetStrength(p), "strength round trip " + chain);
             FleshTuning.SetStrength(p, 4f);
-            Near(1f, FleshTuning.GetStrength(p), "strength upper clamp " + chain);
+            Near(2f, FleshTuning.GetStrength(p), "strength upper clamp " + chain);
             FleshTuning.SetStrength(p, -1f);
             Near(0f, FleshTuning.GetStrength(p), "strength lower clamp " + chain);
+            FleshTuning.SetMotionTarget(p, 0.63f);
+            Near(0.63f, FleshTuning.GetMotionTarget(p), "motion target round trip " + chain);
+            Near(3.15f, p.MotionGain, "motion target maps to raw compatibility gain " + chain);
+            FleshTuning.SetMotionTarget(p, 4f);
+            Near(2f, FleshTuning.GetMotionTarget(p), "motion target upper clamp " + chain);
+            Near(10f, p.MotionGain, "motion target expanded raw upper " + chain);
+            FleshTuning.SetMotionTarget(p, -1f);
+            Near(0f, FleshTuning.GetMotionTarget(p), "motion target lower clamp " + chain);
         }
     }
 
     private static void TestSoftnessRoundTripAndMonotonicity()
     {
-        float[] points = { 0f, 0.25f, 0.5f, 0.75f, 1f };
+        float[] points = { 0f, 0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f };
         foreach (FleshPartId part in new[] { FleshPartId.Thigh, FleshPartId.Arm, FleshPartId.Belly })
         {
             foreach (bool chain in new[] { false, true })
@@ -119,14 +250,27 @@ internal static class Program
                     InRange(damping, 0f, 1f, "damping range");
                     InRange(elasticity, 0f, 1f, "elasticity range");
                     InRange(stiffness, 0f, 1f, "stiffness range");
-                    InRange(inert, 0f, 1f, "inert range");
-                    InRange(frequency, 0f, 2.5f, "frequency range");
+                    InRange(inert, 0f, 1.5f, "inert range");
+                    InRange(frequency, 0f, FleshParameterRanges.JitterFrequencyMax,
+                        "frequency range");
                     previousDamping = damping;
                     previousElasticity = elasticity;
                     previousStiffness = stiffness;
                     previousInert = inert;
                     previousFrequency = frequency;
                 }
+
+                ThighParams enhanced = ThighParams.CreatePartDefaults(part);
+                enhanced.GamePhysics = chain;
+                FleshTuning.SetSoftness(enhanced, part, 2f);
+                PluginData card = new PluginData();
+                card.data["v"] = ThighParams.DataVersion;
+                ThighParams.WritePart(card.data, "roundtrip_", enhanced);
+                ThighParams reloaded = ThighParams.CreatePartDefaults(part);
+                ThighParams.ReadPart(card.data, "roundtrip_", reloaded,
+                    ThighParams.DataVersion);
+                Near(2f, FleshTuning.GetSoftness(reloaded, part),
+                    part + " enhanced softness survives card round trip chain=" + chain);
             }
         }
     }
@@ -138,18 +282,28 @@ internal static class Program
         True(!ReferenceEquals(first, second), "preset instances are independent");
         True(!ReferenceEquals(first.Chain, second.Chain), "chain instances are independent");
         first.Chain.Weight = 0f;
-        Near(0.9f, second.Chain.Weight, "preset mutation isolation");
+        Near(0.92f, second.Chain.Weight, "preset mutation isolation");
     }
 
     private static void TestFeelPresets()
     {
         FleshPartId[] parts = { FleshPartId.Thigh, FleshPartId.Arm, FleshPartId.Belly };
-        float[] stableStrength = { 0.75f, 0.60f, 0.55f };
-        float[] naturalStrength = { 0.90f, 0.70f, 0.70f };
-        float[] naturalSoftness = { 1f, 1f, 0.5f };
-        float[] naturalMotion = { 1f, 1f, 1.0864f };
-        float[] danceStrength = { 0.95f, 0.80f, 0.70f };
-        float[] danceMotion = { 1.50f, 1.50f, 1.20f };
+        float[] stableStrength = { 0.78f, 0.68f, 0.65f };
+        float[] naturalStrength = { 0.92f, 0.80f, 0.78f };
+        float[] danceStrength = { 1.08f, 0.95f, 0.90f };
+        float[] danceMotion = { 0.65f, 0.65f, 0.60f };
+        float[][] springBase =
+        {
+            new[] { 1.00f, 0.30f, 0.18f, 0.03f },
+            new[] { 1.4143f, 0.18f, 0.108f, 0.018f },
+            new[] { 1.1857f, 0.075f, 0.045f, 0.0075f }
+        };
+        float[][] chainBase =
+        {
+            new[] { 1.50f, 1.20f, 0.30f, 0.80f },
+            new[] { 0.80f, 0.60f, 0.60f, 0.072f },
+            new[] { 1.00f, 0.20f, 0.125f, 0.03f }
+        };
 
         for (int i = 0; i < parts.Length; i++)
         {
@@ -160,17 +314,91 @@ internal static class Program
             True(!stable.GamePhysics, parts[i] + " stable preset uses spring");
             True(natural.GamePhysics && dance.GamePhysics,
                 parts[i] + " natural and dance presets use chain");
-            Near(0f, FleshTuning.GetSoftness(stable, parts[i]), parts[i] + " stable softness");
+            Near(0.45f, FleshTuning.GetSoftness(stable, parts[i]), parts[i] + " stable softness");
             Near(stableStrength[i], FleshTuning.GetStrength(stable), parts[i] + " stable strength");
-            Near(0.75f, stable.MotionGain, parts[i] + " stable motion");
-            Near(naturalSoftness[i], FleshTuning.GetSoftness(natural, parts[i]),
+            Near(0.30f, FleshTuning.GetMotionTarget(stable), parts[i] + " stable motion target");
+            Near(0.80f, FleshTuning.GetSoftness(natural, parts[i]),
                 parts[i] + " natural softness");
             Near(naturalStrength[i], FleshTuning.GetStrength(natural), parts[i] + " natural strength");
-            Near(naturalMotion[i], natural.MotionGain, parts[i] + " natural motion");
-            Near(1f, FleshTuning.GetSoftness(dance, parts[i]), parts[i] + " dance softness");
+            Near(0.45f, FleshTuning.GetMotionTarget(natural), parts[i] + " natural motion target");
+            Near(1.10f, FleshTuning.GetSoftness(dance, parts[i]), parts[i] + " dance softness");
             Near(danceStrength[i], FleshTuning.GetStrength(dance), parts[i] + " dance strength");
-            Near(danceMotion[i], dance.MotionGain, parts[i] + " dance motion");
+            Near(danceMotion[i],
+                FleshTuning.GetMotionTarget(dance), parts[i] + " dance motion target");
+
+            for (int bone = 0; bone < 4; bone++)
+            {
+                Near(springBase[i][bone] * 0.75f,
+                    stable.Bones.Get(bone).Amp,
+                    parts[i] + " low spring amp " + bone);
+                Near(springBase[i][bone],
+                    natural.Bones.Get(bone).Amp,
+                    parts[i] + " medium spring amp " + bone);
+                float highSpringAmp = parts[i] == FleshPartId.Thigh && bone == 1
+                    ? 0.50f : springBase[i][bone] * 1.30f;
+                float highChainAmp = parts[i] == FleshPartId.Thigh && bone == 1
+                    ? 0.50f : chainBase[i][bone] * 1.30f;
+                Near(highSpringAmp,
+                    dance.Bones.Get(bone).Amp,
+                    parts[i] + " high spring amp " + bone);
+                Near(chainBase[i][bone] * 0.75f,
+                    stable.ChainBones.Get(bone).Amp,
+                    parts[i] + " low chain amp " + bone);
+                Near(chainBase[i][bone],
+                    natural.ChainBones.Get(bone).Amp,
+                    parts[i] + " medium chain amp " + bone);
+                Near(highChainAmp,
+                    dance.ChainBones.Get(bone).Amp,
+                    parts[i] + " high chain amp " + bone);
+                if (parts[i] != FleshPartId.Thigh || bone != 1)
+                {
+                    True(stable.Bones.Get(bone).Amp < natural.Bones.Get(bone).Amp &&
+                         natural.Bones.Get(bone).Amp < dance.Bones.Get(bone).Amp,
+                        parts[i] + " spring amp level monotonic " + bone);
+                    True(stable.ChainBones.Get(bone).Amp <
+                             natural.ChainBones.Get(bone).Amp &&
+                         natural.ChainBones.Get(bone).Amp <
+                             dance.ChainBones.Get(bone).Amp,
+                        parts[i] + " chain amp level monotonic " + bone);
+                }
+            }
+
+            foreach (ThighParams level in new[] { stable, natural, dance })
+            {
+                float expectedStrength = FleshTuning.GetStrength(level);
+                float expectedSoftness = FleshTuning.GetSoftness(level, parts[i]);
+                level.GamePhysics = !level.GamePhysics;
+                Near(expectedStrength, FleshTuning.GetStrength(level),
+                    parts[i] + " strength survives solver switch");
+                Near(expectedSoftness, FleshTuning.GetSoftness(level, parts[i]),
+                    parts[i] + " softness survives solver switch");
+            }
         }
+
+        NativeBodyParams breastLow = NativeBodyTuning.CreateFeelPreset(
+            FleshPartId.Breast, FleshFeelPreset.Stable);
+        NativeBodyParams breastMedium = NativeBodyTuning.CreateFeelPreset(
+            FleshPartId.Breast, FleshFeelPreset.Natural);
+        NativeBodyParams breastHigh = NativeBodyTuning.CreateFeelPreset(
+            FleshPartId.Breast, FleshFeelPreset.Dance);
+        NativeBodyParams buttLow = NativeBodyTuning.CreateFeelPreset(
+            FleshPartId.Butt, FleshFeelPreset.Stable);
+        NativeBodyParams buttMedium = NativeBodyTuning.CreateFeelPreset(
+            FleshPartId.Butt, FleshFeelPreset.Natural);
+        NativeBodyParams buttHigh = NativeBodyTuning.CreateFeelPreset(
+            FleshPartId.Butt, FleshFeelPreset.Dance);
+        Near(0.40f, breastLow.Strength, "breast low strength");
+        Near(0.50f, breastMedium.Strength, "breast medium strength capped for collision safety");
+        Near(0.60f, breastHigh.Strength, "breast high strength capped for collision safety");
+        Near(0.38f, buttLow.Strength, "butt low strength");
+        Near(0.58f, buttMedium.Strength, "butt medium strength");
+        Near(0.82f, buttHigh.Strength, "butt high strength");
+        Near(0.50f, breastLow.Softness, "native low softness");
+        Near(0.75f, breastMedium.Softness, "native medium softness");
+        Near(0.95f, breastHigh.Softness, "native high softness");
+        Near(0.40f, buttLow.MotionResponse, "native low motion");
+        Near(0.60f, buttMedium.MotionResponse, "native medium motion");
+        Near(0.75f, buttHigh.MotionResponse, "native high motion");
     }
 
     private static void TestCardBoundsAndDeadKeys()
@@ -205,18 +433,18 @@ internal static class Program
 
         ThighParams p = ThighParams.CreateDefault();
         p.ReadData(hostile);
-        Near(0.2f, p.Gravity, "card gravity clamp");
+        Near(0.4f, p.Gravity, "card gravity clamp");
         Near(0f, p.Weight, "card weight clamp");
-        Near(5f, p.MotionGain, "card motion clamp");
+        Near(10f, p.MotionGain, "card motion clamp");
         Near(0f, p.JitterFreq, "card frequency clamp");
-        Near(0.5f, p.MotionSmooth, "card smoothing clamp");
-        Near(1f, p.Chain.Weight, "card chain weight clamp");
-        Near(-0.2f, p.Chain.Gravity, "card chain gravity clamp");
+        Near(1f, p.MotionSmooth, "card smoothing clamp");
+        Near(2f, p.Chain.Weight, "card chain weight clamp");
+        Near(-0.4f, p.Chain.Gravity, "card chain gravity clamp");
         Near(1f, p.Chain.Damping, "card chain damping clamp");
         Near(0f, p.Chain.Elasticity, "card chain elasticity clamp");
         Near(1f, p.Chain.Stiffness, "card chain stiffness clamp");
         Near(0f, p.Chain.Inert, "card chain inert clamp");
-        Near(2.5f, p.Chain.JitterFreq, "card chain frequency clamp");
+        Near(5f, p.Chain.JitterFreq, "card chain frequency clamp");
         Near(1f, p.Thigh00.Damping, "card spring damping clamp");
         Near(0f, p.Thigh00.Elasticity, "card spring elasticity clamp");
         Near(1f, p.Thigh00.Stiffness, "card spring stiffness clamp");
@@ -318,6 +546,25 @@ internal static class Program
 
     private static void TestSolverScalarMath()
     {
+        Near(-1f, FleshSolverMath.NormalizeSignedAngle(359f),
+            "angle-axis 359 degrees follows the -1 degree shortest path");
+        Near(1f, FleshSolverMath.NormalizeSignedAngle(-359f),
+            "angle-axis -359 degrees follows the +1 degree shortest path");
+        Near(0f, FleshSolverMath.NormalizeSignedAngle(float.NaN),
+            "non-finite angle-axis input is neutralized");
+        Near(0.011f, FleshSolverMath.Median3(0.010f, 0.200f, 0.011f),
+            "median guard rejects a positive one-frame spike");
+        Near(-0.011f, FleshSolverMath.Median3(-0.010f, -0.200f, -0.011f),
+            "median guard rejects a negative one-frame spike");
+        Near(0.011f, FleshSolverMath.Median3(0.010f, 0.011f, 0.012f),
+            "median guard preserves the middle of smooth monotonic motion");
+        UnityEngine.Vector3 guarded = FleshSolverMath.Median3(
+            new UnityEngine.Vector3(0.010f, -0.010f, 0.020f),
+            new UnityEngine.Vector3(0.500f, -0.011f, 0.021f),
+            new UnityEngine.Vector3(0.011f, -0.500f, 0.022f));
+        Near(0.011f, guarded.x, "vector median guards translation spike");
+        Near(-0.011f, guarded.y, "vector median guards angular spike");
+        Near(0.021f, guarded.z, "vector median preserves smooth component");
         Near(1f, FleshSolverMath.DanceResponseScale(1f, 0.8f, 0.35f),
             "dance response reference is one");
         Near(2f, FleshSolverMath.DanceResponseScale(2f, 0.8f, 0.35f),
@@ -325,6 +572,34 @@ internal static class Program
         Near(FleshSolverMath.DanceResponseScale(1f, 0.8f, 0.35f),
             FleshSolverMath.DanceResponseScale(float.NaN, 0.8f, 0.35f),
             "invalid dance gain uses safe reference");
+        Near(0.92f, FleshSolverMath.MotionFollowFraction(0f),
+            "zero motion target follows animated movement");
+        Near(0.485f, FleshSolverMath.MotionFollowFraction(0.5f),
+            "middle motion target creates balanced lag");
+        Near(0.05f, FleshSolverMath.MotionFollowFraction(1f),
+            "maximum motion target preserves world inertia");
+        Near(0.05f, FleshSolverMath.MotionFollowFraction(2f),
+            "enhanced motion target keeps anti-snap follow floor");
+        Near(1.35f, FleshSolverMath.TargetRangeScale(1f, 1f),
+            "natural target keeps established visible range");
+        Near(2f, FleshSolverMath.TargetRangeScale(2f, 2f),
+            "enhanced target receives expanded safe visible range");
+        float previousFollow = 1f;
+        float previousRange = 0f;
+        for (int i = 0; i <= 20; i++)
+        {
+            float target = i / 10f;
+            float follow = FleshSolverMath.MotionFollowFraction(target);
+            float range = FleshSolverMath.TargetRangeScale(0.8f, target);
+            LessOrEqual(follow, previousFollow,
+                "motion target monotonically reduces rigid following " + i);
+            GreaterOrEqual(range, previousRange,
+                "motion target monotonically expands safe visible range " + i);
+            GreaterOrEqual(follow, 0.05f, "motion follow keeps anti-snap floor " + i);
+            LessOrEqual(range, 2f, "target visible range stays inside safety cap " + i);
+            previousFollow = follow;
+            previousRange = range;
+        }
 
         ChainParams thigh = ThighParams.CreatePartDefaults(FleshPartId.Thigh).Chain;
         ChainParams belly = ThighParams.CreatePartDefaults(FleshPartId.Belly).Chain;

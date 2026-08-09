@@ -431,7 +431,8 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         float weight = ParamsRef.Weight;
         float step = dt * 60f;
         float smoothing = FleshSolverMath.AdjustPerFrameRate(
-            FleshValue.Clamp(ParamsRef.MotionSmooth, 0.05f, 0.5f, 0.25f), dt);
+            FleshValue.Clamp(ParamsRef.MotionSmooth, 0.05f,
+                FleshParameterRanges.MotionSmoothMax, 0.25f), dt);
         float maxOffset = 0.009f * (0.4f + weight);
         bool broken = false;
 
@@ -601,7 +602,8 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                 flesh.LastSag = sag;
                 float previousDt = FleshValue.Clamp(flesh.PreviousDt,
                     1f / 240f, 0.05f, 1f / 60f);
-                float jitter = FleshValue.Clamp(ParamsRef.JitterFreq, 0f, 2.5f, 1f);
+                float jitter = FleshValue.Clamp(ParamsRef.JitterFreq, 0f,
+                    FleshParameterRanges.JitterFrequencyMax, 1f);
                 // Integrate the visible motion around the gravity equilibrium.
                 // Mixing gravity into Offset and then subtracting a separately
                 // calculated sag at write time creates two different equilibria;
@@ -773,14 +775,10 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         ChainParams chainParams = ParamsRef.Chain;
         float weight = chainParams.Weight;
         float motionGain = ParamsRef.MotionGain;
+        float motionTarget = FleshTuning.GetMotionTarget(ParamsRef);
+        float motionFollow = FleshSolverMath.MotionFollowFraction(motionTarget);
+        float targetRangeScale = FleshSolverMath.TargetRangeScale(weight, motionTarget);
         Vector3 gravity = new Vector3(0f, -chainParams.Gravity * 0.016f, 0f);
-        // Unified dance response scale (shared with spring mode): gain=1 at default
-        // Weight/Inert is 1.0x, 2=2x, 3=3x; Weight/Inert scale it identically in both
-        // modes. The reference coefficient 0.000384 keeps the old normalized feel
-        // (gain=1 roughly equals the old gain=0.001 drive).
-        float danceDrive = 0.0006f *
-            FleshSolverMath.DanceResponseScale(motionGain, weight, chainParams.Inert);
-        danceDrive *= FleshSolverMath.ChainMotionTimeScale(_partId, dt);
         bool logChain = ThighPhysicsControllerPlugin.DebugLogFlesh.Value &&
                         _chainTime - _chainLogTime >= 2f;
 
@@ -809,17 +807,43 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
             float anchorAngle;
             Vector3 anchorAxis;
             anchorRotDelta.ToAngleAxis(out anchorAngle, out anchorAxis);
-            Vector3 anchorAngVel = anchorAxis * anchorAngle;
-            if (IsNan(anchorPos) || IsNan(anchorMove) || IsNan(anchorAngVel))
+            anchorAngle = FleshSolverMath.NormalizeSignedAngle(anchorAngle);
+            Vector3 rawAnchorAngVel = anchorAxis * anchorAngle;
+            if (IsNan(anchorPos) || IsNan(anchorMove) || IsNan(rawAnchorAngVel))
             {
                 chain.PrevAnchorPos = chain.Anchor.position;
                 chain.PrevAnchorRot = chain.Anchor.rotation;
+                ResetChainInputHistory(chain);
                 continue;
             }
+            // MMD Director advances from a realtime timer while this solver runs once
+            // per rendered frame. Normalize deltas to a 60 FPS reference. At high FPS
+            // only, a three-sample median rejects isolated timer spikes without the
+            // continuous low-pass attenuation that used to erase fast dance motion.
+            float inputStep = Mathf.Clamp(dt * 60f, 0.25f, 3f);
+            Vector3 moveAt60 = anchorMove / inputStep;
+            Vector3 angularAt60 = rawAnchorAngVel / inputStep;
+            Vector3 guardedMoveAt60 = moveAt60;
+            Vector3 guardedAngularAt60 = angularAt60;
+            if (inputStep < 0.75f && chain.AnchorInputSampleCount >= 2)
+            {
+                guardedMoveAt60 = FleshSolverMath.Median3(chain.PreviousAnchorMoveAt60,
+                    chain.AnchorMoveAt60, moveAt60);
+                guardedAngularAt60 = FleshSolverMath.Median3(
+                    chain.PreviousAnchorAngularAt60, chain.AnchorAngularAt60, angularAt60);
+            }
+            chain.PreviousAnchorMoveAt60 = chain.AnchorMoveAt60;
+            chain.PreviousAnchorAngularAt60 = chain.AnchorAngularAt60;
+            chain.AnchorMoveAt60 = moveAt60;
+            chain.AnchorAngularAt60 = angularAt60;
+            if (chain.AnchorInputSampleCount < 2)
+                chain.AnchorInputSampleCount++;
+            anchorMove = guardedMoveAt60 * inputStep;
+            Vector3 anchorAngVel = guardedAngularAt60 * inputStep;
             if (chain.Particles.Count == 1)
             {
                 UpdateSingleParticleChain(chain, anchorPos, anchorMove, anchorAngVel,
-                    gravity, weight, danceDrive, chainParams, character, dt);
+                    gravity, weight, motionFollow, targetRangeScale, chainParams, character, dt);
                 continue;
             }
             first.PrevPosition = first.Position;
@@ -870,6 +894,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                 {
                     worldBase = FleshStateReset.ReanchorChain(particle);
                     chain.PrevAnchorPos = anchorPos;
+                    ResetChainInputHistory(chain);
                 }
                 float externalDrift = (particle.Bone.localPosition - particle.PrevAnimatedLocal).magnitude;
                 particle.PrevAnimatedLocal = particle.Bone.localPosition;
@@ -886,6 +911,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                     }
                     worldBase = FleshStateReset.ReanchorChain(particle);
                     chain.PrevAnchorPos = anchorPos;
+                    ResetChainInputHistory(chain);
                 }
                 float amp = ParamsRef.ChainBones.GetAmp(particle.BoneIndex);
                 if (amp <= 0.0001f)
@@ -911,7 +937,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                 // VELOCITY (inertia), so the flesh lags continuously instead of being
                 // dragged rigidly by the anchor.
                 FleshChainSolver.Integrate(particle, anchorPos, anchorMove, anchorAngVel,
-                    gravity, weight, danceDrive, chainParams, dt);
+                    gravity, weight, motionFollow, chainParams, dt);
                 // Anisotropic spring: hard along the bone axis (no stretching), soft
                 // perpendicular to it (flesh sway). This is what makes it look like
                 // fat swinging instead of a rubber chain wriggling.
@@ -919,7 +945,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                 // Leash: keep the particle near its skeleton-anchored base, scaled by amp
                 // so the amplitude slider stays meaningful instead of being saturated.
                 float distal = particle.BoneIndex == _distalIndex ? 0.6f : 1f;
-                float leashLimit = (0.03f + 0.012f * amp) * distal;
+                float leashLimit = (0.03f + 0.012f * amp) * distal * targetRangeScale;
                 FleshChainSolver.ApplyLeash(particle, worldBase, leashLimit);
             }
 
@@ -1033,7 +1059,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                 float posScale = ParamsRef.ChainBones.GetRotCalc(particle.BoneIndex) ? 0.5f : 1f;
                 localDelta = Vector3.Scale(localDelta, axisMask) * amp * posScale;
                 float distal = particle.BoneIndex == _distalIndex ? 0.6f : 1f;
-                float writeLimit = (0.02f + 0.01f * amp) * distal;
+                float writeLimit = (0.02f + 0.01f * amp) * distal * targetRangeScale;
                 localDelta = Vector3.ClampMagnitude(localDelta, writeLimit);
                 Vector3 worldDelta = character.TransformDirection(localDelta);
                 if (parent == null)
@@ -1073,9 +1099,20 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                 " elasticity=" + chainParams.Elasticity.ToString("F3") +
                 " stiffness=" + chainParams.Stiffness.ToString("F3") +
                 " inert=" + chainParams.Inert.ToString("F3") +
-                " motionGain=" + motionGain.ToString("F3"));
+                " motionTarget=" + motionTarget.ToString("F3") +
+                " follow=" + motionFollow.ToString("F3") +
+                " motionRaw=" + motionGain.ToString("F3"));
             _chainLogTime = _chainTime;
         }
+    }
+
+    private static void ResetChainInputHistory(SideChain chain)
+    {
+        chain.AnchorMoveAt60 = Vector3.zero;
+        chain.AnchorAngularAt60 = Vector3.zero;
+        chain.PreviousAnchorMoveAt60 = Vector3.zero;
+        chain.PreviousAnchorAngularAt60 = Vector3.zero;
+        chain.AnchorInputSampleCount = 0;
     }
 
     /// <summary>
@@ -1086,7 +1123,8 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
     /// </summary>
     private void UpdateSingleParticleChain(SideChain chain, Vector3 anchorPos,
         Vector3 anchorMove, Vector3 anchorAngVel, Vector3 gravity, float weight,
-        float danceDrive, ChainParams chainParams, Transform character, float dt)
+        float motionFollow, float targetRangeScale, ChainParams chainParams,
+        Transform character, float dt)
     {
         ChainParticle particle = chain.Particles[0];
         if (particle == null || particle.Bone == null)
@@ -1131,14 +1169,14 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
             return;
         }
         FleshChainSolver.Integrate(particle, anchorPos, anchorMove, anchorAngVel,
-            gravity, weight, danceDrive, chainParams, dt);
+            gravity, weight, motionFollow, chainParams, dt);
         // A one-particle chain has no previous particle/rest segment to supply the
         // multi-particle solver's return force. Pull it toward the animated base here,
         // otherwise gravity pins Belly to its leash and Elasticity/Stiffness/JitterFreq
         // have no effect at all.
         FleshChainSolver.ApplySingleParticleReturn(particle, worldBase, chainParams, dt);
         Vector3 delta = particle.Position - worldBase;
-        float leashLimit = 0.03f + 0.012f * amp;
+        float leashLimit = (0.03f + 0.012f * amp) * targetRangeScale;
         FleshChainSolver.ApplyLeash(particle, worldBase, leashLimit);
         delta = particle.Position - worldBase;
         Vector3 axisMask = ParamsRef.ChainBones.GetAxis(particle.BoneIndex);
@@ -1146,7 +1184,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         // Single-particle chain has no child to aim at, so RC cannot rotate; keep
         // the full translation (no 0.5x RC position discount).
         localDelta = Vector3.Scale(localDelta, axisMask) * amp;
-        float writeLimit = 0.02f + 0.01f * amp;
+        float writeLimit = (0.02f + 0.01f * amp) * targetRangeScale;
         localDelta = Vector3.ClampMagnitude(localDelta, writeLimit);
         Vector3 worldDelta = character.TransformDirection(localDelta);
         if (parent == null)

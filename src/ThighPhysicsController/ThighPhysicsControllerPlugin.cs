@@ -13,7 +13,7 @@ using UnityEngine;
 namespace ThighPhysicsController;
 
 [BepInDependency("marco.kkapi")]
-[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Flesh Physics Controller", "0.8.11.0")]
+[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Soma Dynamics", "1.0.0.0")]
 [DefaultExecutionOrder(-1000)]
 public class ThighPhysicsControllerPlugin : BaseUnityPlugin
 {
@@ -22,17 +22,6 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
     internal static ConfigEntry<bool> ForceEnable;
     internal static ConfigEntry<bool> RememberPerCharacter;
     internal static ConfigEntry<bool> AutoFixSpringDrift;
-    internal static ConfigEntry<string> DebugAutoLoadScene;
-    internal static ConfigEntry<bool> DebugRegressionMotion;
-    internal static ConfigEntry<bool> DebugRegressionSweepSoftness;
-    internal static ConfigEntry<int> DebugRegressionSoftnessSteps;
-    internal static ConfigEntry<float> DebugRegressionStageSeconds;
-    internal static ConfigEntry<int> DebugRegressionTargetFps;
-    internal static ConfigEntry<string> DebugRegressionFeelPreset;
-    internal static ConfigEntry<string> DebugRegressionSolverMode;
-    internal static ConfigEntry<float> DebugRegressionStrength;
-    internal static ConfigEntry<float> DebugRegressionSoftness;
-    internal static ConfigEntry<float> DebugRegressionResponse;
     internal static ConfigEntry<bool> DebugCollectMetrics;
     internal static ConfigEntry<bool> DebugLogFlesh;
     internal static ConfigEntry<bool> DebugDumpSkeleton;
@@ -51,8 +40,6 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
     private string _presetName = "MyPreset.xml";
     private bool _advancedMode;
     private Vector2 _scroll = Vector2.zero;
-    private float _debugLoadTimer;
-    private bool _debugLoadAttempted;
     private GUIStyle _windowStyle;
 
     private readonly Dictionary<string, string> _editBuffers = new Dictionary<string, string>();
@@ -65,26 +52,11 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
     private static bool _mouseOverWindow;
     private static Vector2 _lastGuiMouse;
     private static bool _hasGuiMouse;
+    private static ManualLogSource _runtimeLog;
+    private static bool _loggedBustSoftGuard;
+    private static bool _loggedBustGravityGuard;
 
     private Harmony _harmony;
-    private float _regressionTime;
-    private bool _regressionWasActive;
-    private int _regressionStage = -1;
-    private bool _regressionFrameRateOverridden;
-    private int _regressionPreviousTargetFps;
-    private int _regressionPreviousVSync;
-    private readonly Dictionary<int, RegressionAnchor> _regressionAnchors =
-        new Dictionary<int, RegressionAnchor>();
-    private readonly Dictionary<int, int> _regressionConfiguredStages =
-        new Dictionary<int, int>();
-
-    private sealed class RegressionAnchor
-    {
-        public Transform Bone;
-        public Quaternion BaseRotation;
-        public Vector3 BasePosition;
-    }
-
     private void Awake()
     {
         WindowKey = Config.Bind("General", "Window key",
@@ -100,28 +72,6 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         AutoFixSpringDrift = Config.Bind("General", "Auto fix spring drift", true,
             "Slowly ease spring-mode base drift back to the card pose so dancing " +
             "does not progressively deform the thighs.");
-        DebugAutoLoadScene = Config.Bind("Debug", "Auto load studio scene", string.Empty,
-            "If set to a .png scene file, the plugin tries to load it shortly after CharaStudio starts. Used for sandbox tests.");
-        DebugRegressionMotion = Config.Bind("Debug", "Run regression motion", false,
-            "Drive thigh, arm, and belly anchors with deterministic sine rotations for repeatable physics tests.");
-        DebugRegressionSweepSoftness = Config.Bind("Debug", "Regression softness sweep", false,
-            "While regression motion runs, sweep evenly spaced softness points.");
-        DebugRegressionSoftnessSteps = Config.Bind("Debug", "Regression softness steps", 3,
-            "Number of evenly spaced softness points, clamped to 2..9.");
-        DebugRegressionStageSeconds = Config.Bind("Debug", "Regression stage seconds", 17f,
-            "Seconds per softness point, clamped to 7..60. Includes a two-second warmup.");
-        DebugRegressionTargetFps = Config.Bind("Debug", "Regression target FPS", -1,
-            "Positive values disable VSync and set Application.targetFrameRate during regression only.");
-        DebugRegressionFeelPreset = Config.Bind("Debug", "Regression feel preset", "Default",
-            "Default, Stable, Natural, or Dance. Applies one complete whole-body preset before overrides.");
-        DebugRegressionSolverMode = Config.Bind("Debug", "Regression solver mode", "Default",
-            "Default, Chain, or Spring. Default keeps the loaded card/default mode.");
-        DebugRegressionStrength = Config.Bind("Debug", "Regression strength", -1f,
-            "Override simple strength during regression; negative keeps each part's baseline.");
-        DebugRegressionSoftness = Config.Bind("Debug", "Regression softness", -1f,
-            "Override simple softness during regression; negative keeps each part's baseline.");
-        DebugRegressionResponse = Config.Bind("Debug", "Regression motion response", -1f,
-            "Override motion response during regression; negative keeps each part's baseline.");
         DebugCollectMetrics = Config.Bind("Debug", "Collect runtime metrics", false,
             "Log five-second FPC_METRIC windows with mean/RMS/peak offsets and safety reset counts.");
         DebugLogFlesh = Config.Bind("Debug", "Log flesh physics", false,
@@ -134,7 +84,8 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         Directory.CreateDirectory(PresetDirectory.Value);
 
         CharacterApi.RegisterExtraBehaviour<ThighController>("codex.koikatumanager.thighphysicscontroller");
-        Logger.LogInfo("Flesh Physics Controller initialized (autoApply=" + AutoApply.Value +
+        _runtimeLog = Logger;
+        Logger.LogInfo("Soma Dynamics initialized (autoApply=" + AutoApply.Value +
                        ", forceEnable=" + ForceEnable.Value + ", presets=" + PresetDirectory.Value + ").");
 
         try
@@ -146,10 +97,17 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
             PatchInputMethod("GetMouseButtonDown", typeof(int));
             PatchInputMethod("GetMouseButtonUp", typeof(int));
             Logger.LogInfo("Input blocking patches installed.");
+
+            // The BPC-compatible guards below use Harmony attributes. They must be
+            // registered separately from the manually patched Unity input methods.
+            // Without this call, BustSoft/BustGravity can overwrite FPC's values
+            // after a body/collision refresh even though the patch classes compile.
+            _harmony.PatchAll(Assembly.GetExecutingAssembly());
+            Logger.LogInfo("Native breast compatibility patches installed.");
         }
         catch (Exception ex)
         {
-            Logger.LogWarning("Failed to install input blocking patches: " + ex.Message);
+            Logger.LogWarning("Failed to install FPC Harmony patches: " + ex);
         }
     }
 
@@ -230,7 +188,6 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         _blockInput = _inputCaptured;
         _blockScroll = _mouseOverWindow;
 
-        TryDebugLoadScene();
         for (int i = Controllers.Count - 1; i >= 0; i--)
         {
             ThighController controller = Controllers[i];
@@ -241,308 +198,14 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         }
     }
 
-    private void LateUpdate()
-    {
-        // Animation has already written its pose. Run the deterministic driver before
-        // the later-created jiggle components so every solver sees the same anchor move.
-        UpdateRegressionMotion();
-    }
-
-    private void UpdateRegressionMotion()
-    {
-        if (!DebugRegressionMotion.Value)
-        {
-            if (_regressionWasActive)
-            {
-                RestoreRegressionAnchors();
-                RestoreRegressionFrameRate();
-                Logger.LogInfo("FPC regression motion stopped; anchor rotations restored.");
-            }
-            _regressionWasActive = false;
-            return;
-        }
-        if (!_regressionWasActive)
-        {
-            _regressionTime = 0f;
-            _regressionStage = -1;
-            _regressionAnchors.Clear();
-            _regressionConfiguredStages.Clear();
-            ApplyRegressionFrameRate();
-            Logger.LogInfo("FPC regression motion started (deterministic 0.5 Hz anchors).");
-        }
-        _regressionWasActive = true;
-        if (Controllers.Count == 0)
-        {
-            return;
-        }
-        _regressionTime += Time.deltaTime;
-        int softnessSteps = Mathf.Clamp(DebugRegressionSoftnessSteps.Value, 2, 9);
-        float stageSeconds = Mathf.Clamp(DebugRegressionStageSeconds.Value, 7f, 60f);
-        int stage = DebugRegressionSweepSoftness.Value
-            ? Mathf.Min(softnessSteps - 1, Mathf.FloorToInt(_regressionTime / stageSeconds))
-            : 0;
-        if (stage != _regressionStage)
-        {
-            _regressionStage = stage;
-            _regressionConfiguredStages.Clear();
-            float stageSoftness = DebugRegressionSweepSoftness.Value
-                ? stage / (float)(softnessSteps - 1)
-                : DebugRegressionSoftness.Value;
-            Logger.LogInfo("FPC_REGRESSION_STAGE index=" + stage +
-                " softness=" + stageSoftness.ToString("F3") +
-                " preset=" + DebugRegressionFeelPreset.Value +
-                " solver=" + DebugRegressionSolverMode.Value);
-        }
-        float phase = _regressionTime * Mathf.PI;
-        for (int i = 0; i < Controllers.Count; i++)
-        {
-            ThighController controller = Controllers[i];
-            if (controller == null)
-            {
-                continue;
-            }
-            int controllerId = controller.GetInstanceID();
-            int configuredStage;
-            if (_regressionTime >= 1f &&
-                (!_regressionConfiguredStages.TryGetValue(controllerId, out configuredStage) ||
-                 configuredStage != stage))
-            {
-                ApplyRegressionParameters(controller, stage);
-                _regressionConfiguredStages[controllerId] = stage;
-            }
-            DriveRegressionAnchor(controller, "cf_j_thigh00_L",
-                new Vector3(Mathf.Sin(phase) * 12f, 0f, 0f), Vector3.zero);
-            DriveRegressionAnchor(controller, "cf_j_thigh00_R",
-                new Vector3(-Mathf.Sin(phase) * 12f, 0f, 0f), Vector3.zero);
-            DriveRegressionAnchor(controller, "cf_j_arm00_L",
-                new Vector3(0f, 0f, Mathf.Sin(phase + 1.2f) * 10f), Vector3.zero);
-            DriveRegressionAnchor(controller, "cf_j_arm00_R",
-                new Vector3(0f, 0f, -Mathf.Sin(phase + 1.2f) * 10f), Vector3.zero);
-            bool useSpringDriver = string.Equals(DebugRegressionSolverMode.Value, "Spring",
-                                       StringComparison.OrdinalIgnoreCase) ||
-                                   (!string.Equals(DebugRegressionSolverMode.Value, "Chain",
-                                        StringComparison.OrdinalIgnoreCase) &&
-                                    !controller.GetParams(FleshPartId.Belly).GamePhysics);
-            string bellyDriver = useSpringDriver
-                ? "cf_j_waist01"
-                : "cf_j_spine03";
-            DriveRegressionAnchor(controller, bellyDriver,
-                new Vector3(Mathf.Sin(phase + 2.4f) * 5f, 0f, 0f),
-                new Vector3(Mathf.Sin(phase + 2.4f) * 0.008f, 0f, 0f));
-        }
-    }
-
-    private void ApplyRegressionParameters(ThighController controller, int stage)
-    {
-        string solver = DebugRegressionSolverMode.Value == null
-            ? "Default"
-            : DebugRegressionSolverMode.Value.Trim();
-        float softness = DebugRegressionSweepSoftness.Value
-            ? stage / (float)(Mathf.Clamp(DebugRegressionSoftnessSteps.Value, 2, 9) - 1)
-            : DebugRegressionSoftness.Value;
-        for (int i = 0; i < 3; i++)
-        {
-            FleshPartId partId = (FleshPartId)i;
-            ThighParams part;
-            FleshFeelPreset feelPreset;
-            if (TryParseFeelPreset(DebugRegressionFeelPreset.Value, out feelPreset))
-            {
-                part = FleshTuning.CreateFeelPreset(partId, feelPreset);
-                controller.SetParams(partId, part);
-            }
-            else
-            {
-                part = controller.GetParams(partId);
-            }
-            if (solver.Equals("Chain", StringComparison.OrdinalIgnoreCase))
-            {
-                part.GamePhysics = true;
-            }
-            else if (solver.Equals("Spring", StringComparison.OrdinalIgnoreCase))
-            {
-                part.GamePhysics = false;
-            }
-            if (DebugRegressionStrength.Value >= 0f)
-            {
-                FleshTuning.SetStrength(part, DebugRegressionStrength.Value);
-            }
-            if (softness >= 0f)
-            {
-                FleshTuning.SetSoftness(part, partId, softness);
-            }
-            if (DebugRegressionResponse.Value >= 0f)
-            {
-                part.MotionGain = Mathf.Clamp(DebugRegressionResponse.Value, 0f, 5f);
-            }
-        }
-        controller.ClearDeformation();
-        controller.Apply(resetPosition: true);
-    }
-
-    private static bool TryParseFeelPreset(string value, out FleshFeelPreset preset)
-    {
-        if (string.Equals(value, "Stable", StringComparison.OrdinalIgnoreCase))
-        {
-            preset = FleshFeelPreset.Stable;
-            return true;
-        }
-        if (string.Equals(value, "Natural", StringComparison.OrdinalIgnoreCase))
-        {
-            preset = FleshFeelPreset.Natural;
-            return true;
-        }
-        if (string.Equals(value, "Dance", StringComparison.OrdinalIgnoreCase))
-        {
-            preset = FleshFeelPreset.Dance;
-            return true;
-        }
-        preset = FleshFeelPreset.Natural;
-        return false;
-    }
-
-    private void DriveRegressionAnchor(ThighController controller, string boneName, Vector3 euler,
-        Vector3 positionOffset)
-    {
-        Transform bone = controller.FindBonePublic(boneName);
-        if (bone == null)
-        {
-            return;
-        }
-        int id = bone.GetInstanceID();
-        RegressionAnchor anchor;
-        if (!_regressionAnchors.TryGetValue(id, out anchor) || anchor.Bone != bone)
-        {
-            anchor = new RegressionAnchor
-            {
-                Bone = bone,
-                BaseRotation = bone.localRotation,
-                BasePosition = bone.localPosition,
-            };
-            _regressionAnchors[id] = anchor;
-        }
-        bone.localRotation = anchor.BaseRotation * Quaternion.Euler(euler);
-        bone.localPosition = anchor.BasePosition + positionOffset;
-    }
-
-    private void RestoreRegressionAnchors()
-    {
-        foreach (RegressionAnchor anchor in _regressionAnchors.Values)
-        {
-            if (anchor.Bone != null)
-            {
-                anchor.Bone.localRotation = anchor.BaseRotation;
-                anchor.Bone.localPosition = anchor.BasePosition;
-            }
-        }
-        _regressionAnchors.Clear();
-    }
-
-    private void ApplyRegressionFrameRate()
-    {
-        int target = DebugRegressionTargetFps.Value;
-        if (target <= 0 || _regressionFrameRateOverridden)
-        {
-            return;
-        }
-        _regressionPreviousTargetFps = Application.targetFrameRate;
-        _regressionPreviousVSync = QualitySettings.vSyncCount;
-        QualitySettings.vSyncCount = 0;
-        Application.targetFrameRate = Mathf.Clamp(target, 15, 240);
-        _regressionFrameRateOverridden = true;
-        Logger.LogInfo("FPC regression target FPS=" + Application.targetFrameRate);
-    }
-
-    private void RestoreRegressionFrameRate()
-    {
-        if (!_regressionFrameRateOverridden)
-        {
-            return;
-        }
-        Application.targetFrameRate = _regressionPreviousTargetFps;
-        QualitySettings.vSyncCount = _regressionPreviousVSync;
-        _regressionFrameRateOverridden = false;
-    }
-
     private void OnDestroy()
     {
-        RestoreRegressionAnchors();
-        RestoreRegressionFrameRate();
-    }
-
-    private void TryDebugLoadScene()
-    {
-        if (_debugLoadAttempted)
+        if (_harmony != null)
         {
-            return;
+            _harmony.UnpatchSelf();
+            _harmony = null;
         }
-        string scenePath = DebugAutoLoadScene.Value;
-        if (string.IsNullOrEmpty(scenePath) || !File.Exists(scenePath))
-        {
-            _debugLoadAttempted = true;
-            return;
-        }
-        _debugLoadTimer += Time.deltaTime;
-        if (_debugLoadTimer < 6f)
-        {
-            return;
-        }
-        if (_debugLoadTimer > 30f)
-        {
-            Logger.LogWarning("Debug auto-load scene: studio never became ready: " + scenePath);
-            _debugLoadAttempted = true;
-            return;
-        }
-        try
-        {
-            Type studioType = null;
-            Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
-            for (int i = 0; i < assemblies.Length; i++)
-            {
-                try
-                {
-                    studioType = assemblies[i].GetType("Studio.Studio", false);
-                }
-                catch (Exception)
-                {
-                    studioType = null;
-                }
-                if (studioType != null)
-                {
-                    break;
-                }
-            }
-            if (studioType == null)
-            {
-                return;
-            }
-            // Studio.Studio inherits Instance from Singleton<Studio>; plain GetProperty
-            // does not return inherited static members, so include FlattenHierarchy.
-            object studio = studioType.GetProperty("Instance",
-                BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy)?.GetValue(null, null);
-            if (studio == null)
-            {
-                return;
-            }
-            MethodInfo addFemale = studioType.GetMethod("AddFemale");
-            if (addFemale != null)
-            {
-                addFemale.Invoke(studio, new object[] { scenePath });
-                Logger.LogInfo("Debug auto-load chara invoked (" + scenePath + ")");
-                _debugLoadAttempted = true;
-                return;
-            }
-            bool loaded = (bool)studioType.GetMethod("LoadScene").Invoke(studio, new object[] { scenePath });
-            Logger.LogInfo("Debug auto-load scene result=" + loaded + " (" + scenePath + ")");
-            if (loaded)
-            {
-                _debugLoadAttempted = true;
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning("Debug auto-load scene failed: " + ex.Message);
-            _debugLoadAttempted = true;
-        }
+        _runtimeLog = null;
     }
 
     private void OnGUI()
@@ -559,7 +222,7 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
             _windowStyle.alignment = TextAnchor.UpperCenter;
         }
         _windowRect = GUI.Window(GetWindowId(), _windowRect, WindowFunction,
-            "Flesh Physics Controller", _windowStyle);
+            "Soma Dynamics / 形体动力学控制器", _windowStyle);
         if (Event.current != null)
         {
             _lastGuiMouse = Event.current.mousePosition;
@@ -652,7 +315,9 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
     private void DrawControllerPanel(ThighController controller)
     {
         GUILayout.Space(6f);
-        string[] partNames = { "Thigh", "Arm", "Belly" };
+        DrawWholeBodyPanel(controller);
+        GUILayout.Space(8f);
+        string[] partNames = { "大腿 Thigh", "手臂 Arm", "腹部 Belly", "胸部 Breast", "臀部 Butt" };
         // Explicit toggle buttons instead of SelectionGrid: the grid click could be
         // eaten by the input-blocking patches, leaving the panel stuck on the wrong
         // part (e.g. Belly requested but Arm per-bone labels shown).
@@ -660,43 +325,49 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         for (int p = 0; p < partNames.Length; p++)
         {
             bool isPart = _selectedPart == p;
-            if (GUILayout.Toggle(isPart, partNames[p], GUILayout.Width(80f)) && !isPart)
+            if (GUILayout.Toggle(isPart, partNames[p], GUILayout.Width(100f)) && !isPart)
             {
                 _selectedPart = p;
             }
         }
         GUILayout.EndHorizontal();
         FleshPartId partId = (FleshPartId)_selectedPart;
+        if (partId == FleshPartId.Breast || partId == FleshPartId.Butt)
+        {
+            DrawNativeBodyPanel(controller, partId, partNames[_selectedPart]);
+            return;
+        }
         ThighParams part = controller.GetParams(partId);
         string partLabel = partNames[_selectedPart];
 
-        part.Enabled = GUILayout.Toggle(part.Enabled, " " + partLabel + " physics enabled");
+        bool oldPartEnabled = part.Enabled;
+        bool newPartEnabled = GUILayout.Toggle(part.Enabled,
+            " 启用 " + partLabel + " 物理  Enable");
+        if (newPartEnabled != oldPartEnabled)
+        {
+            part.Enabled = newPartEnabled;
+            controller.Apply(resetPosition: false);
+        }
 
         GUILayout.BeginHorizontal();
-        GUILayout.Label(_advancedMode ? "高级调节：完整求解器参数" : "简单调节：只保留三个手感参数");
-        _advancedMode = GUILayout.Toggle(_advancedMode, "Advanced 高级", GUILayout.Width(120f));
+        GUILayout.Label(_advancedMode ? "高级参数  Advanced parameters" : "基础参数  Essential controls");
+        _advancedMode = GUILayout.Toggle(_advancedMode, "高级 Advanced", GUILayout.Width(120f));
         GUILayout.EndHorizontal();
 
         bool gamePhysics = part.GamePhysics;
-        if (_advancedMode)
+        GUILayout.BeginHorizontal();
+        GUILayout.Label("求解模式  Solver", GUILayout.Width(110f));
+        if (GUILayout.Button((!gamePhysics ? "● " : "○ ") + "弹簧 Spring",
+                GUILayout.Width(145f)) && gamePhysics)
         {
-            part.GamePhysics = GUILayout.Toggle(gamePhysics,
-                " 舞蹈链式模式（关闭 = 日常弹簧模式）");
+            part.GamePhysics = false;
         }
-        else
+        if (GUILayout.Button((gamePhysics ? "● " : "○ ") + "链式 Chain",
+                GUILayout.Width(145f)) && !gamePhysics)
         {
-            GUILayout.BeginHorizontal();
-            GUILayout.Label("物理模式", GUILayout.Width(70f));
-            if (GUILayout.Toggle(!gamePhysics, "日常弹簧 Spring", GUILayout.Width(150f)) && gamePhysics)
-            {
-                part.GamePhysics = false;
-            }
-            if (GUILayout.Toggle(gamePhysics, "舞蹈链式 Chain", GUILayout.Width(150f)) && !gamePhysics)
-            {
-                part.GamePhysics = true;
-            }
-            GUILayout.EndHorizontal();
+            part.GamePhysics = true;
         }
+        GUILayout.EndHorizontal();
         if (gamePhysics != part.GamePhysics)
         {
             // Clear the previous mode's deformation first, otherwise the chain
@@ -709,102 +380,89 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         if (!_advancedMode)
         {
             GUILayout.Space(6f);
-            GUILayout.Label("强度 Strength");
+            GUILayout.Label("摆动强度  Swing");
             float strength = FleshTuning.GetStrength(part);
-            float newStrength = NumericSlider(ctrlId + "_simple_strength", strength, 0f, 1f, "");
+            float newStrength = NumericSlider(ctrlId + "_simple_strength", strength, 0f,
+                FleshParameterRanges.TargetMax, "");
             if (Mathf.Abs(newStrength - strength) > 0.00001f)
             {
                 FleshTuning.SetStrength(part, newStrength);
             }
 
-            GUILayout.Label("柔软度 Softness");
+            GUILayout.Label("柔顺度  Softness");
             float softness = FleshTuning.GetSoftness(part, partId);
-            float newSoftness = NumericSlider(ctrlId + "_simple_softness", softness, 0f, 1f, "");
+            float newSoftness = NumericSlider(ctrlId + "_simple_softness", softness, 0f,
+                FleshParameterRanges.TargetMax, "");
             if (Mathf.Abs(newSoftness - softness) > 0.00001f)
             {
                 FleshTuning.SetSoftness(part, partId, newSoftness);
             }
 
-            GUILayout.Label("动作响应 Motion response");
-            part.MotionGain = NumericSlider(ctrlId + "_simple_motion", part.MotionGain, 0f, 3f, "");
-            GUILayout.Label("柔软度会联动阻尼、惯性、回弹和频率；高级模式仍可逐项覆盖。",
-                GUILayout.Width(500f));
-
+            GUILayout.Label("动作响应  Motion response");
+            float motionTarget = FleshTuning.GetMotionTarget(part);
+            float newMotionTarget = NumericSlider(ctrlId + "_simple_motion", motionTarget,
+                0f, FleshParameterRanges.TargetMax, "");
+            if (Mathf.Abs(newMotionTarget - motionTarget) > 0.00001f)
+                FleshTuning.SetMotionTarget(part, newMotionTarget);
             GUILayout.Space(6f);
-            GUILayout.Label("整套手感预设（应用到大腿 / 手臂 / 小肚子）");
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("稳定日常 Spring"))
-            {
-                ApplyFeelPreset(controller, FleshFeelPreset.Stable);
-                GUILayout.EndHorizontal();
-                return;
-            }
-            if (GUILayout.Button("常用自然 Chain"))
-            {
-                ApplyFeelPreset(controller, FleshFeelPreset.Natural);
-                GUILayout.EndHorizontal();
-                return;
-            }
-            if (GUILayout.Button("舞蹈增强 Chain"))
-            {
-                ApplyFeelPreset(controller, FleshFeelPreset.Dance);
-                GUILayout.EndHorizontal();
-                return;
-            }
-            GUILayout.EndHorizontal();
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Apply now"))
-            {
-                controller.Apply(resetPosition: false);
-            }
-            if (GUILayout.Button("Clear shape"))
-            {
+            if (GUILayout.Button("恢复姿态  Restore pose"))
                 controller.ClearDeformation();
+            if (GUILayout.Button("恢复推荐基线  Reset"))
+            {
+                controller.SetParams(partId, ThighParams.CreatePartDefaults(partId));
+                controller.ClearDeformation();
+                controller.Apply(resetPosition: true);
             }
             GUILayout.EndHorizontal();
-            GUILayout.Space(4f);
-            GUILayout.Label("参数实时生效，并在保存角色卡时自动写入。需要逐骨/轴向控制时开启高级模式。");
             return;
         }
 
-        GUILayout.Label("Dance response");
-        part.MotionGain = NumericSlider(ctrlId + "_mg", part.MotionGain, 0f, 5f, "");
+        GUILayout.Label("动作增益  Motion gain (0–10)");
+        part.MotionGain = NumericSlider(ctrlId + "_mg", part.MotionGain, 0f,
+            FleshParameterRanges.MotionGainMax, "");
         if (part.GamePhysics)
         {
             GUILayout.Space(6f);
-            GUILayout.Label("Chain mode parameters");
+            GUILayout.Label("链式求解参数  Chain solver");
             ChainParams chain = part.Chain;
             GUILayout.Label("Weight");
-            chain.Weight = NumericSlider(ctrlId + "_cw", chain.Weight, 0f, 1f, "");
+            chain.Weight = NumericSlider(ctrlId + "_cw", chain.Weight, 0f,
+                FleshParameterRanges.WeightMax, "");
             GUILayout.Label("Gravity");
-            chain.Gravity = NumericSlider(ctrlId + "_cg", chain.Gravity, -0.2f, 0.2f, "");
+            chain.Gravity = NumericSlider(ctrlId + "_cg", chain.Gravity,
+                -FleshParameterRanges.GravityMax, FleshParameterRanges.GravityMax, "");
             chain.Damping = NumericSlider(ctrlId + "_cd", chain.Damping, 0f, 1f, "Damping");
             chain.Elasticity = NumericSlider(ctrlId + "_ce", chain.Elasticity, 0f, 1f, "Elasticity");
             chain.Stiffness = NumericSlider(ctrlId + "_cs", chain.Stiffness, 0f, 1f, "Stiffness");
-            chain.Inert = NumericSlider(ctrlId + "_ci", chain.Inert, 0f, 1f, "Inert");
-            chain.JitterFreq = NumericSlider(ctrlId + "_cjf", chain.JitterFreq, 0f, 2.5f,
+            chain.Inert = NumericSlider(ctrlId + "_ci", chain.Inert, 0f,
+                FleshParameterRanges.CustomInertMax, "Inert");
+            chain.JitterFreq = NumericSlider(ctrlId + "_cjf", chain.JitterFreq, 0f,
+                FleshParameterRanges.JitterFrequencyMax,
                 "Jitter freq");
         }
         else
         {
             GUILayout.Label("Weight");
-            part.Weight = NumericSlider(ctrlId + "_w", part.Weight, 0f, 1f, "");
+            part.Weight = NumericSlider(ctrlId + "_w", part.Weight, 0f,
+                FleshParameterRanges.WeightMax, "");
             GUILayout.Label("Gravity");
-            part.Gravity = NumericSlider(ctrlId + "_g", part.Gravity, -0.2f, 0.2f, "");
-            part.JitterFreq = NumericSlider(ctrlId + "_jf", part.JitterFreq, 0f, 2.5f,
+            part.Gravity = NumericSlider(ctrlId + "_g", part.Gravity,
+                -FleshParameterRanges.GravityMax, FleshParameterRanges.GravityMax, "");
+            part.JitterFreq = NumericSlider(ctrlId + "_jf", part.JitterFreq, 0f,
+                FleshParameterRanges.JitterFrequencyMax,
                 "Jitter freq");
-            part.MotionSmooth = NumericSlider(ctrlId + "_ms", part.MotionSmooth, 0.05f, 0.5f,
+            part.MotionSmooth = NumericSlider(ctrlId + "_ms", part.MotionSmooth, 0.05f,
+                FleshParameterRanges.MotionSmoothMax,
                 "Motion smooth");
             DrawBoneSection(ctrlId, partLabel + " flesh (shared)", part.Thigh00);
         }
 
         GUILayout.Space(6f);
         GUILayout.BeginHorizontal();
-        if (GUILayout.Button("Apply now"))
-        {
-            controller.Apply(resetPosition: false);
-        }
-        if (GUILayout.Button("Reset to defaults"))
+        if (GUILayout.Button("恢复姿态  Restore pose"))
+            controller.ClearDeformation();
+        if (GUILayout.Button("恢复推荐基线  Reset"))
         {
             controller.SetParams(partId, ThighParams.CreatePartDefaults(partId));
             controller.ClearDeformation();
@@ -812,14 +470,8 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         }
         GUILayout.EndHorizontal();
 
-        GUILayout.Space(4f);
-        if (GUILayout.Button("Clear shape (restore card defaults)"))
-        {
-            controller.ClearDeformation();
-        }
-
         GUILayout.Space(6f);
-        GUILayout.Label("Presets");
+        GUILayout.Label("配置文件（全角色）  Profile import / export");
         string[] presetFiles = GetPresetFiles();
         if (presetFiles.Length > 0)
         {
@@ -831,11 +483,11 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         }
         else
         {
-            GUILayout.Label("No presets yet. Type a name and press Save preset.");
+            GUILayout.Label("暂无配置文件  No profiles");
         }
         GUILayout.BeginHorizontal();
         _presetName = GUILayout.TextField(_presetName, 120);
-        if (GUILayout.Button("Save preset"))
+        if (GUILayout.Button("导出  Export"))
         {
             string targetPath;
             if (WindowsFileDialog.ShowSave(PresetDirectory.Value, EnsureXml(_presetName), out targetPath))
@@ -843,12 +495,12 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
                 controller.SavePreset(targetPath);
             }
         }
-        if (GUILayout.Button("Load preset") && presetFiles.Length > 0)
+        if (GUILayout.Button("导入所选  Import") && presetFiles.Length > 0)
         {
             controller.LoadPreset(Path.Combine(PresetDirectory.Value, presetFiles[_presetIndex]));
             controller.Apply(resetPosition: true);
         }
-        if (GUILayout.Button("Load from file..."))
+        if (GUILayout.Button("浏览文件  Browse..."))
         {
             string sourcePath;
             if (WindowsFileDialog.ShowOpen(PresetDirectory.Value, out sourcePath))
@@ -863,8 +515,195 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
             part.GamePhysics ? part.ChainBones : part.Bones,
             part.GamePhysics,
             GetPartBoneLabels(partId));
+    }
+
+    private void DrawWholeBodyPanel(ThighController controller)
+    {
+        string ctrlId = "c" + controller.GetInstanceID() + "_whole";
+        NativeBodyParams breast = controller.GetNativeParams(FleshPartId.Breast);
+        NativeBodyParams butt = controller.GetNativeParams(FleshPartId.Butt);
+        float strength = breast.Strength + butt.Strength;
+        float softness = breast.Softness + butt.Softness;
+        float motion = breast.MotionResponse + butt.MotionResponse;
+        for (int i = 0; i < 3; i++)
+        {
+            FleshPartId part = (FleshPartId)i;
+            ThighParams value = controller.GetParams(part);
+            strength += FleshTuning.GetStrength(value);
+            softness += FleshTuning.GetSoftness(value, part);
+            motion += FleshTuning.GetMotionTarget(value);
+        }
+        strength /= 5f;
+        softness /= 5f;
+        motion /= 5f;
+
+        GUILayout.Label("全身控制  Global controls");
+        GUILayout.Label("统一调整五个部位；部位页用于局部修正。0–1 常用，1–2 增强。",
+            GUILayout.Width(520f));
+        GUILayout.Label("摆动强度  Swing");
+        float newStrength = NumericSlider(ctrlId + "_strength", strength, 0f,
+            FleshParameterRanges.TargetMax, "");
+        GUILayout.Label("柔顺度  Softness");
+        float newSoftness = NumericSlider(ctrlId + "_softness", softness, 0f,
+            FleshParameterRanges.TargetMax, "");
+        GUILayout.Label("动作响应  Motion response");
+        float newMotion = NumericSlider(ctrlId + "_motion", motion, 0f,
+            FleshParameterRanges.TargetMax, "");
+        bool setStrength = Mathf.Abs(newStrength - strength) > 0.00001f;
+        bool setSoftness = Mathf.Abs(newSoftness - softness) > 0.00001f;
+        bool setMotion = Mathf.Abs(newMotion - motion) > 0.00001f;
+        if (setStrength || setSoftness || setMotion)
+        {
+            controller.SetWholeBodyTargets(newStrength, newSoftness, newMotion,
+                setStrength, setSoftness, setMotion);
+        }
+
+        GUILayout.Label("全身预设  Global level");
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button("低  Low"))
+        {
+            ApplyFeelPreset(controller, FleshFeelPreset.Stable);
+            GUILayout.EndHorizontal();
+            return;
+        }
+        if (GUILayout.Button("中  Medium"))
+        {
+            ApplyFeelPreset(controller, FleshFeelPreset.Natural);
+            GUILayout.EndHorizontal();
+            return;
+        }
+        if (GUILayout.Button("高  High"))
+        {
+            ApplyFeelPreset(controller, FleshFeelPreset.Dance);
+            GUILayout.EndHorizontal();
+            return;
+        }
+        GUILayout.EndHorizontal();
+        GUILayout.Label("实时生效 · 随角色卡保存  Live · Saved with character card");
+    }
+
+    private void DrawNativeBodyPanel(ThighController controller, FleshPartId partId,
+        string partLabel)
+    {
+        NativeBodyParams part = controller.GetNativeParams(partId);
+        string ctrlId = "c" + controller.GetInstanceID() + "_p" + _selectedPart;
+        bool oldEnabled = part.Enabled;
+        float oldStrength = part.Strength;
+        float oldSoftness = part.Softness;
+        float oldResponse = part.MotionResponse;
+        GUILayout.Space(6f);
+        GUILayout.Label("原生碰撞链  Native DynamicBone");
+        bool newEnabled = GUILayout.Toggle(part.Enabled,
+            " 启用参数接管  Enable override");
+        if (newEnabled != oldEnabled)
+        {
+            part.Enabled = newEnabled;
+        }
+        if (partId == FleshPartId.Breast)
+            GUILayout.Label("当前状态  Current: " + controller.CurrentBustStateLabel,
+                GUILayout.Width(500f));
+
+        GUILayout.Space(6f);
+        GUILayout.Label("摆动强度  Swing");
+        part.Strength = NumericSlider(ctrlId + "_native_strength", part.Strength, 0f,
+            FleshParameterRanges.TargetMax, "");
+        GUILayout.Label("柔顺度  Softness");
+        part.Softness = NumericSlider(ctrlId + "_native_softness", part.Softness, 0f,
+            FleshParameterRanges.TargetMax, "");
+        GUILayout.Label("动作响应  Motion response");
+        part.MotionResponse = NumericSlider(ctrlId + "_native_response",
+            part.MotionResponse, 0f, FleshParameterRanges.TargetMax, "");
+        bool simpleChanged = Mathf.Abs(part.Strength - oldStrength) > 0.00001f ||
+                             Mathf.Abs(part.Softness - oldSoftness) > 0.00001f ||
+                             Mathf.Abs(part.MotionResponse - oldResponse) > 0.00001f;
+        if (simpleChanged)
+            part.AdvancedOverride = false;
+
+        GUILayout.BeginHorizontal();
+        GUILayout.Label(_advancedMode ? "高级参数  Advanced parameters" :
+            "基础参数  Essential controls");
+        _advancedMode = GUILayout.Toggle(_advancedMode, "高级 Advanced", GUILayout.Width(120f));
+        GUILayout.EndHorizontal();
+        bool advancedChanged = false;
+        if (_advancedMode)
+        {
+            float oldGravity = part.Gravity;
+            GUILayout.Label("重力  Gravity");
+            part.Gravity = NumericSlider(ctrlId + "_native_gravity", part.Gravity,
+                -FleshParameterRanges.NativeGravityMax,
+                FleshParameterRanges.NativeGravityMax, "");
+            bool rawChanged = Mathf.Abs(part.Gravity - oldGravity) > 0.000001f;
+            string[] labels = partId == FleshPartId.Breast
+                ? new[] { "cf_j_bust01", "cf_j_bust02", "cf_j_bust03" }
+                : new[] { "cf_d_siri01", "cf_j_siri_01" };
+            for (int i = 0; i < labels.Length; i++)
+                rawChanged |= DrawNativeBoneEditor(ctrlId, i, labels[i], part.GetBone(i));
+            if (rawChanged)
+                part.AdvancedOverride = true;
+            advancedChanged = rawChanged;
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(part.AdvancedOverride ? "逐骨覆盖  Per-bone override" :
+                "推荐映射  Recommended mapping");
+            if (part.AdvancedOverride &&
+                GUILayout.Button("恢复推荐映射  Use mapping", GUILayout.Width(165f)))
+            {
+                part.AdvancedOverride = false;
+                simpleChanged = true;
+            }
+            GUILayout.EndHorizontal();
+            if (partId == FleshPartId.Breast &&
+                GUILayout.Button("应用到全部胸部状态  Apply to all breast states"))
+            {
+                controller.CopyCurrentBreastToAllStates();
+            }
+        }
+
+        if (oldEnabled != part.Enabled || simpleChanged || advancedChanged)
+            controller.RequestNativeReapply(1);
+
+        GUILayout.Space(6f);
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button("恢复推荐基线  Reset"))
+        {
+            controller.SetNativeParams(partId, NativeBodyParams.CreateDefault(partId));
+            controller.Apply(resetPosition: true);
+            GUILayout.EndHorizontal();
+            return;
+        }
+        GUILayout.EndHorizontal();
+        GUILayout.Label("保留游戏碰撞；参数实时生效并随角色卡保存。",
+            GUILayout.Width(500f));
+    }
+
+    private bool DrawNativeBoneEditor(string ctrlId, int index, string label,
+        NativeBoneParams bone)
+    {
+        bool changed = false;
         GUILayout.Space(4f);
-        GUILayout.Label("Settings are saved to the card automatically on save.");
+        GUILayout.Label(label);
+        bool rotation = GUILayout.Toggle(bone.IsRotationCalc, " RotationCalc");
+        if (rotation != bone.IsRotationCalc)
+        {
+            bone.IsRotationCalc = rotation;
+            changed = true;
+        }
+        float value = NumericSlider(ctrlId + "_nb" + index + "_d", bone.Damping,
+            0f, 1f, "Damping");
+        changed |= Mathf.Abs(value - bone.Damping) > 0.00001f;
+        bone.Damping = value;
+        value = NumericSlider(ctrlId + "_nb" + index + "_e", bone.Elasticity,
+            0f, 1f, "Elasticity");
+        changed |= Mathf.Abs(value - bone.Elasticity) > 0.00001f;
+        bone.Elasticity = value;
+        value = NumericSlider(ctrlId + "_nb" + index + "_s", bone.Stiffness,
+            0f, 1f, "Stiffness");
+        changed |= Mathf.Abs(value - bone.Stiffness) > 0.00001f;
+        bone.Stiffness = value;
+        value = NumericSlider(ctrlId + "_nb" + index + "_i", bone.Inert,
+            0f, 1f, "Inert");
+        changed |= Mathf.Abs(value - bone.Inert) > 0.00001f;
+        bone.Inert = value;
+        return changed;
     }
 
     private static void ApplyFeelPreset(ThighController controller, FleshFeelPreset preset)
@@ -872,51 +711,104 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         for (int i = 0; i < 3; i++)
         {
             FleshPartId part = (FleshPartId)i;
-            controller.SetParams(part, FleshTuning.CreateFeelPreset(part, preset));
+            ThighParams current = controller.GetParams(part).Clone();
+            ThighParams level = FleshTuning.CreateFeelPreset(part, preset);
+            FleshTuning.ApplyLevelTargets(current, part,
+                FleshTuning.GetStrength(level),
+                FleshTuning.GetSoftness(level, part),
+                FleshTuning.GetMotionTarget(level));
+            FleshTuning.ApplyLevelAmplitudes(current, part, preset);
+            controller.SetParams(part, current);
         }
-        controller.ClearDeformation();
-        controller.Apply(resetPosition: true);
+        NativeBodyParams breastLevel = NativeBodyTuning.CreateFeelPreset(
+            FleshPartId.Breast, preset);
+        controller.BreastProfile.SetTargetsAll(breastLevel.Strength,
+            breastLevel.Softness, breastLevel.MotionResponse, true, true, true);
+        NativeBodyParams buttLevel = NativeBodyTuning.CreateFeelPreset(FleshPartId.Butt,
+            preset);
+        NativeBodyTuning.SetTargets(controller.ButtParams, FleshPartId.Butt,
+            buttLevel.Strength, buttLevel.Softness, buttLevel.MotionResponse);
+        controller.RequestNativeReapply(1);
+        controller.Apply(resetPosition: false);
+        string levelName = preset == FleshFeelPreset.Stable ? "Low" :
+            preset == FleshFeelPreset.Natural ? "Medium" : "High";
+        UnityEngine.Debug.Log("FPC_PRESET_APPLY level=" + levelName +
+            " scope=WholeBody modes=Preserved");
     }
 
-    private void DrawBoneSection(string ctrlId, string label, ThighBoneParams bone)
+    private bool DrawBoneSection(string ctrlId, string label, ThighBoneParams bone)
     {
+        bool changed = false;
         GUILayout.Space(4f);
-        GUILayout.Label("Bone " + label);
-        bone.Damping = NumericSlider(ctrlId + "_d", bone.Damping, 0f, 1f, "Damping");
-        bone.Elasticity = NumericSlider(ctrlId + "_e", bone.Elasticity, 0f, 1f, "Elasticity");
-        bone.Stiffness = NumericSlider(ctrlId + "_s", bone.Stiffness, 0f, 1f, "Stiffness");
-        bone.Inert = NumericSlider(ctrlId + "_i", bone.Inert, 0f, 1f, "Inert");
-        GUILayout.Label("Same particle model as the game breast/butt bones. React to movement only.",
+        GUILayout.Label("共享骨骼参数  Shared bone · " + label);
+        float value = NumericSlider(ctrlId + "_d", bone.Damping, 0f, 1f, "Damping");
+        changed |= Mathf.Abs(value - bone.Damping) > 0.00001f;
+        bone.Damping = value;
+        value = NumericSlider(ctrlId + "_e", bone.Elasticity, 0f, 1f, "Elasticity");
+        changed |= Mathf.Abs(value - bone.Elasticity) > 0.00001f;
+        bone.Elasticity = value;
+        value = NumericSlider(ctrlId + "_s", bone.Stiffness, 0f, 1f, "Stiffness");
+        changed |= Mathf.Abs(value - bone.Stiffness) > 0.00001f;
+        bone.Stiffness = value;
+        value = NumericSlider(ctrlId + "_i", bone.Inert, 0f,
+            FleshParameterRanges.CustomInertMax, "Inert");
+        changed |= Mathf.Abs(value - bone.Inert) > 0.00001f;
+        bone.Inert = value;
+        GUILayout.Label("参数实时生效；安全限制由求解器统一处理。",
             GUILayout.Width(400f));
+        return changed;
     }
 
-    private void DrawBoneAmounts(string ctrlId, ThighBoneAmounts bones, bool chainMode, string[] boneLabels)
+    private bool DrawBoneAmounts(string ctrlId, ThighBoneAmounts bones, bool chainMode,
+        string[] boneLabels)
     {
+        bool changed = false;
         GUILayout.Space(4f);
-        GUILayout.Label("Per-bone (" + (chainMode ? "Chain" : "Spring") + "): Amp / Rot / RC / Axis (0 = freeze)");
+        GUILayout.Label("逐骨参数  Per-bone · " + (chainMode ? "Chain" : "Spring") +
+            " · Amp / Rot / RC / Axis (0 = freeze)");
         string modePrefix = chainMode ? "_c" : "_s";
         for (int r = 0; r < boneLabels.Length; r++)
         {
             int i = r;
             PerBoneAmount amount = bones.Get(i);
             GUILayout.BeginHorizontal();
-            amount.Enabled = GUILayout.Toggle(amount.Enabled, boneLabels[r], GUILayout.Width(120f));
+            bool enabled = GUILayout.Toggle(amount.Enabled, boneLabels[r], GUILayout.Width(120f));
+            changed |= enabled != amount.Enabled;
+            amount.Enabled = enabled;
             GUILayout.Label("Amp", GUILayout.Width(30f));
-            amount.Amp = NumericSlider(ctrlId + modePrefix + "_b" + i + "_a", amount.Amp, 0f, 2f, "");
+            float value = NumericSlider(ctrlId + modePrefix + "_b" + i + "_a",
+                amount.Amp, 0f, FleshParameterRanges.BoneAmplitudeMax, "");
+            changed |= Mathf.Abs(value - amount.Amp) > 0.00001f;
+            amount.Amp = value;
             GUILayout.Label("Rot", GUILayout.Width(28f));
-            amount.RotAmp = NumericField(ctrlId + modePrefix + "_b" + i + "_r", amount.RotAmp, 0f, 1f, 52f);
-            amount.RotCalc = GUILayout.Toggle(amount.RotCalc, "RC", GUILayout.Width(38f));
+            value = NumericField(ctrlId + modePrefix + "_b" + i + "_r", amount.RotAmp,
+                0f, FleshParameterRanges.RotationAmplitudeMax, 52f);
+            changed |= Mathf.Abs(value - amount.RotAmp) > 0.00001f;
+            amount.RotAmp = value;
+            bool rotCalc = GUILayout.Toggle(amount.RotCalc, "RC", GUILayout.Width(38f));
+            changed |= rotCalc != amount.RotCalc;
+            amount.RotCalc = rotCalc;
             GUILayout.EndHorizontal();
             GUILayout.BeginHorizontal();
             GUILayout.Space(124f);
             GUILayout.Label("X", GUILayout.Width(16f));
-            amount.AxisX = NumericField(ctrlId + modePrefix + "_b" + i + "_x", amount.AxisX, 0f, 1f, 52f);
+            value = NumericField(ctrlId + modePrefix + "_b" + i + "_x", amount.AxisX,
+                0f, FleshParameterRanges.AxisScaleMax, 52f);
+            changed |= Mathf.Abs(value - amount.AxisX) > 0.00001f;
+            amount.AxisX = value;
             GUILayout.Label("Y", GUILayout.Width(16f));
-            amount.AxisY = NumericField(ctrlId + modePrefix + "_b" + i + "_y", amount.AxisY, 0f, 1f, 52f);
+            value = NumericField(ctrlId + modePrefix + "_b" + i + "_y", amount.AxisY,
+                0f, FleshParameterRanges.AxisScaleMax, 52f);
+            changed |= Mathf.Abs(value - amount.AxisY) > 0.00001f;
+            amount.AxisY = value;
             GUILayout.Label("Z", GUILayout.Width(16f));
-            amount.AxisZ = NumericField(ctrlId + modePrefix + "_b" + i + "_z", amount.AxisZ, 0f, 1f, 52f);
+            value = NumericField(ctrlId + modePrefix + "_b" + i + "_z", amount.AxisZ,
+                0f, FleshParameterRanges.AxisScaleMax, 52f);
+            changed |= Mathf.Abs(value - amount.AxisZ) > 0.00001f;
+            amount.AxisZ = value;
             GUILayout.EndHorizontal();
         }
+        return changed;
     }
 
     private string[] GetPartBoneLabels(FleshPartId part)
@@ -1041,5 +933,81 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
             text += ".xml";
         }
         return text;
+    }
+
+    private static ThighController FindBustOwner(BustSoft value)
+    {
+        for (int i = 0; i < Controllers.Count; i++)
+        {
+            ThighController controller = Controllers[i];
+            if (controller != null && controller.OwnsBustSoft(value))
+                return controller;
+        }
+        return null;
+    }
+
+    private static ThighController FindBustOwner(BustGravity value)
+    {
+        for (int i = 0; i < Controllers.Count; i++)
+        {
+            ThighController controller = Controllers[i];
+            if (controller != null && controller.OwnsBustGravity(value))
+                return controller;
+        }
+        return null;
+    }
+
+    [HarmonyPatch(typeof(BustSoft), "ReCalc")]
+    private static class BustSoftReCalcPatch
+    {
+        [HarmonyPrefix]
+        private static bool Prefix(BustSoft __instance)
+        {
+            // Full BPC behavior: do not let the game's body-shape/collision refresh
+            // overwrite FPC's active custom breast DynamicBone parameters.
+            if (FindBustOwner(__instance) == null)
+                return true;
+            if (!_loggedBustSoftGuard)
+            {
+                _loggedBustSoftGuard = true;
+                _runtimeLog?.LogInfo("FPC_NATIVE_GUARD blocked BustSoft.ReCalc overwrite.");
+            }
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(BustGravity), "ReCalc")]
+    private static class BustGravityReCalcPatch
+    {
+        [HarmonyPrefix]
+        private static bool Prefix(BustGravity __instance)
+        {
+            if (FindBustOwner(__instance) == null)
+                return true;
+            if (!_loggedBustGravityGuard)
+            {
+                _loggedBustGravityGuard = true;
+                _runtimeLog?.LogInfo("FPC_NATIVE_GUARD blocked BustGravity.ReCalc overwrite.");
+            }
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(ChaControl), "SetClothesState")]
+    private static class ClothesStateChangedPatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(ChaControl __instance)
+        {
+            for (int i = 0; i < Controllers.Count; i++)
+            {
+                ThighController controller = Controllers[i];
+                if (controller != null && controller.ChaControlMatches(__instance))
+                {
+                    controller.OnClothesStateChanged();
+                    break;
+                }
+            }
+        }
     }
 }

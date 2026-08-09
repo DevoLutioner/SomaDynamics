@@ -187,7 +187,8 @@ public sealed partial class ThighFleshJiggle
             " reanchors=" + _metricReanchors +
             " strength=" + strength.ToString("F3") +
             " softness=" + softness.ToString("F3") +
-            " motion=" + ParamsRef.MotionGain.ToString("F3"));
+            " motion_target=" + FleshTuning.GetMotionTarget(ParamsRef).ToString("F3") +
+            " motion_raw=" + ParamsRef.MotionGain.ToString("F3"));
         ResetMetricWindow();
     }
 

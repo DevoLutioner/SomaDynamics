@@ -11,7 +11,7 @@ internal static class FleshChainSolver
 {
     public static void Integrate(ChainParticle particle, Vector3 anchorPos,
         Vector3 anchorMove, Vector3 anchorAngularVelocity, Vector3 gravity,
-        float weight, float danceDrive, ChainParams parameters, float dt)
+        float weight, float motionFollow, ChainParams parameters, float dt)
     {
         dt = FleshValue.Clamp(dt, 1f / 240f, 0.05f, 1f / 60f);
         float previousDt = FleshValue.Clamp(particle.PreviousDt,
@@ -25,11 +25,12 @@ internal static class FleshChainSolver
                            displacementScale * retention;
         velocity = Vector3.ClampMagnitude(velocity, 0.10f * Mathf.Max(0.25f, step));
         Vector3 radial = particle.Position - anchorPos;
-        Vector3 tangentialDrive = Vector3.ClampMagnitude(
-            Vector3.Cross(anchorAngularVelocity, radial) * danceDrive, 0.05f);
-        velocity += anchorMove * danceDrive +
-                   gravity * weight * step +
-                   tangentialDrive;
+        // Convert MMD's per-frame skeletal rotation to the same world-distance
+        // representation produced when Studio's translation gizmo moves the actor.
+        Vector3 angularMove = Vector3.ClampMagnitude(Vector3.Cross(
+            anchorAngularVelocity * Mathf.Deg2Rad, radial), 0.08f);
+        velocity += (anchorMove + angularMove) * motionFollow +
+                    gravity * weight * step;
         velocity = Vector3.ClampMagnitude(velocity, 0.22f * Mathf.Max(0.25f, step));
         particle.PrevPosition = particle.Position;
         particle.Position += velocity;
@@ -45,7 +46,8 @@ internal static class FleshChainSolver
             ? restDirection.normalized
             : Vector3.zero;
         float axialDot = Vector3.Dot(toTarget, axialDirection);
-        float jitter = FleshValue.Clamp(parameters.JitterFreq, 0f, 2.5f, 1f);
+        float jitter = FleshValue.Clamp(parameters.JitterFreq, 0f,
+            FleshParameterRanges.JitterFrequencyMax, 1f);
         float axialStrength = FleshSolverMath.AdjustPerFrameRate(
             Mathf.Clamp01(parameters.Stiffness * jitter), dt);
         float lateralStrength = FleshSolverMath.AdjustPerFrameRate(
