@@ -77,23 +77,6 @@ public sealed class ThighController : CharaCustomFunctionController
         }
     }
 
-    public string GenderLabel
-    {
-        get
-        {
-            if (ChaControl == null)
-            {
-                return "";
-            }
-            ChaFile file = ((ChaInfo)ChaControl).chaFile;
-            if (file != null && file.parameter != null)
-            {
-                return file.parameter.sex == 0 ? "[男]" : "[女]";
-            }
-            return "";
-        }
-    }
-
     public bool IsMale
     {
         get
@@ -526,20 +509,22 @@ public sealed class ThighController : CharaCustomFunctionController
         string gravity = GetChildText(node, "Gravity");
         if (gravity.Length > 0)
         {
-            p.Gravity = float.Parse(gravity, CultureInfo.InvariantCulture);
+            p.Gravity = ReadFiniteText(gravity, -0.2f, 0.2f, p.Gravity);
         }
         string weight = GetChildText(node, "Weight");
         if (weight.Length > 0)
         {
-            p.Weight = float.Parse(weight, CultureInfo.InvariantCulture);
+            p.Weight = ReadFiniteText(weight, 0f, 1f, p.Weight);
         }
         string motionGain = GetChildText(node, "MotionGain");
         if (motionGain.Length > 0)
         {
-            p.MotionGain = Mathf.Clamp(float.Parse(motionGain, CultureInfo.InvariantCulture), 0f, 5f);
+            p.MotionGain = ReadFiniteText(motionGain, 0f, 5f, p.MotionGain);
         }
-        p.JitterFreq = Mathf.Clamp(GetFloat(node, "JitterFreq", p.JitterFreq), 0f, 2.5f);
-        p.MotionSmooth = Mathf.Clamp(GetFloat(node, "MotionSmooth", p.MotionSmooth), 0.05f, 0.5f);
+        p.JitterFreq = FleshValue.Clamp(GetFloat(node, "JitterFreq", p.JitterFreq),
+            0f, 2.5f, p.JitterFreq);
+        p.MotionSmooth = FleshValue.Clamp(GetFloat(node, "MotionSmooth", p.MotionSmooth),
+            0.05f, 0.5f, p.MotionSmooth);
         string gamePhysics = GetChildText(node, "GamePhysics");
         if (gamePhysics.Length > 0)
         {
@@ -548,14 +533,14 @@ public sealed class ThighController : CharaCustomFunctionController
         XmlNode chainParameters = node.SelectSingleNode("ChainParameters");
         if (chainParameters != null)
         {
-            p.Chain.Weight = GetFloat(chainParameters, "Weight", p.Chain.Weight);
-            p.Chain.Gravity = GetFloat(chainParameters, "Gravity", p.Chain.Gravity);
-            p.Chain.Damping = GetFloat(chainParameters, "Damping", p.Chain.Damping);
-            p.Chain.Elasticity = GetFloat(chainParameters, "Elasticity", p.Chain.Elasticity);
-            p.Chain.Stiffness = GetFloat(chainParameters, "Stiffness", p.Chain.Stiffness);
-            p.Chain.Inert = GetFloat(chainParameters, "Inert", p.Chain.Inert);
-            p.Chain.JitterFreq = Mathf.Clamp(
-                GetFloat(chainParameters, "JitterFreq", p.Chain.JitterFreq), 0f, 2.5f);
+            p.Chain.Weight = ReadFiniteChild(chainParameters, "Weight", 0f, 1f, p.Chain.Weight);
+            p.Chain.Gravity = ReadFiniteChild(chainParameters, "Gravity", -0.2f, 0.2f, p.Chain.Gravity);
+            p.Chain.Damping = ReadFiniteChild(chainParameters, "Damping", 0f, 1f, p.Chain.Damping);
+            p.Chain.Elasticity = ReadFiniteChild(chainParameters, "Elasticity", 0f, 1f, p.Chain.Elasticity);
+            p.Chain.Stiffness = ReadFiniteChild(chainParameters, "Stiffness", 0f, 1f, p.Chain.Stiffness);
+            p.Chain.Inert = ReadFiniteChild(chainParameters, "Inert", 0f, 1f, p.Chain.Inert);
+            p.Chain.JitterFreq = ReadFiniteChild(chainParameters, "JitterFreq", 0f, 2.5f,
+                p.Chain.JitterFreq);
         }
         XmlNode parameterSets = node.SelectSingleNode("ParameterSets");
         if (parameterSets != null)
@@ -566,12 +551,12 @@ public sealed class ThighController : CharaCustomFunctionController
                 {
                     continue;
                 }
-                p.Thigh00.IsRotationCalc = GetBool(child, "IsRotationCalc", p.Thigh00.IsRotationCalc);
-                p.Thigh00.Damping = GetFloat(child, "Damping", p.Thigh00.Damping);
-                p.Thigh00.Elasticity = GetFloat(child, "Elasticity", p.Thigh00.Elasticity);
-                p.Thigh00.Stiffness = GetFloat(child, "Stiffness", p.Thigh00.Stiffness);
-                p.Thigh00.Inert = GetFloat(child, "Inert", p.Thigh00.Inert);
-                p.Thigh00.CollisionRadius = GetFloat(child, "CollisionRadius", p.Thigh00.CollisionRadius);
+                p.Thigh00.Damping = ReadFiniteChild(child, "Damping", 0f, 1f, p.Thigh00.Damping);
+                p.Thigh00.Elasticity = ReadFiniteChild(child, "Elasticity", 0f, 1f,
+                    p.Thigh00.Elasticity);
+                p.Thigh00.Stiffness = ReadFiniteChild(child, "Stiffness", 0f, 1f,
+                    p.Thigh00.Stiffness);
+                p.Thigh00.Inert = ReadFiniteChild(child, "Inert", 0f, 1f, p.Thigh00.Inert);
             }
         }
         ReadBoneAmps(node, "BoneAmps", p.Bones);
@@ -605,7 +590,7 @@ public sealed class ThighController : CharaCustomFunctionController
             string amp = GetAttribute(child, "Amp");
             if (amp.Length > 0)
             {
-                amount.Amp = Mathf.Clamp(float.Parse(amp, CultureInfo.InvariantCulture), 0f, 2f);
+                amount.Amp = ReadFiniteText(amp, 0f, 2f, amount.Amp);
             }
             amount.AxisX = ReadClampedAttr(child, "AxisX", 0f, 1f, amount.AxisX);
             amount.AxisY = ReadClampedAttr(child, "AxisY", 0f, 1f, amount.AxisY);
@@ -626,12 +611,10 @@ public sealed class ThighController : CharaCustomFunctionController
     {
         writer.WriteStartElement("ParameterSet");
         writer.WriteAttributeString("PartName", partName);
-        writer.WriteElementString("IsRotationCalc", bone.IsRotationCalc ? "true" : "false");
         writer.WriteElementString("Damping", bone.Damping.ToString("0.0000"));
         writer.WriteElementString("Elasticity", bone.Elasticity.ToString("0.0000"));
         writer.WriteElementString("Stiffness", bone.Stiffness.ToString("0.0000"));
         writer.WriteElementString("Inert", bone.Inert.ToString("0.0000"));
-        writer.WriteElementString("CollisionRadius", bone.CollisionRadius.ToString("0.0000"));
         writer.WriteEndElement();
     }
 
@@ -679,7 +662,7 @@ public sealed class ThighController : CharaCustomFunctionController
         float parsed;
         if (float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out parsed))
         {
-            return Mathf.Clamp(parsed, min, max);
+            return FleshValue.Clamp(parsed, min, max, fallback);
         }
         return fallback;
     }
@@ -696,16 +679,6 @@ public sealed class ThighController : CharaCustomFunctionController
         return attribute == null ? string.Empty : attribute.Value;
     }
 
-    private static bool GetBool(XmlNode node, string name, bool fallback)
-    {
-        string text = GetChildText(node, name);
-        if (text.Length == 0)
-        {
-            return fallback;
-        }
-        return text.Equals("true", StringComparison.OrdinalIgnoreCase);
-    }
-
     private static float GetFloat(XmlNode node, string name, float fallback)
     {
         string text = GetChildText(node, name);
@@ -714,11 +687,26 @@ public sealed class ThighController : CharaCustomFunctionController
             return fallback;
         }
         float parsed;
-        if (float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out parsed))
+        if (float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out parsed) &&
+            FleshValue.IsFinite(parsed))
         {
             return parsed;
         }
         return fallback;
+    }
+
+    private static float ReadFiniteChild(XmlNode node, string name,
+        float min, float max, float fallback)
+    {
+        return FleshValue.Clamp(GetFloat(node, name, fallback), min, max, fallback);
+    }
+
+    private static float ReadFiniteText(string text, float min, float max, float fallback)
+    {
+        float parsed;
+        return float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out parsed)
+            ? FleshValue.Clamp(parsed, min, max, fallback)
+            : fallback;
     }
 }
 

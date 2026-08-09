@@ -2,11 +2,13 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
 
-    [string]$Version = '0.8.6.3',
+    [string]$Version = '0.8.11.0',
 
     [string]$GameRoot = '',
 
     [switch]$SkipArchive,
+
+    [switch]$SkipTests,
 
     [switch]$Force
 )
@@ -33,6 +35,12 @@ $readme = Join-Path $repoRoot 'README.md'
 $changelog = Join-Path $repoRoot 'CHANGELOG.md'
 
 Write-Host "Building Flesh Physics Controller $Version (game root: $GameRoot)"
+if (-not $SkipTests) {
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'Test-FleshParameterModel.ps1')
+    if ($LASTEXITCODE -ne 0) {
+        throw "Parameter model tests failed with exit code $LASTEXITCODE"
+    }
+}
 & dotnet build $project -c $Configuration -p:KOIKATU_BUILD_GAME_ROOT=$GameRoot
 if ($LASTEXITCODE -ne 0) {
     throw "Build failed with exit code $LASTEXITCODE"
@@ -47,7 +55,10 @@ if (Test-Path $staging) {
 
 New-Item -ItemType Directory -Path $presetsDir -Force | Out-Null
 Copy-Item -LiteralPath $outputDll -Destination (Join-Path $pluginDir 'ThighPhysicsController.dll')
-Copy-Item -Path (Join-Path $sourcePresets '*.xml') -Destination $presetsDir
+$presetFiles = @(Get-ChildItem -Path $sourcePresets -Filter '*.xml' -File -ErrorAction SilentlyContinue)
+if ($presetFiles.Count -gt 0) {
+    $presetFiles | Copy-Item -Destination $presetsDir
+}
 Copy-Item -LiteralPath $readme -Destination (Join-Path $staging 'README.zh-CN.md')
 Copy-Item -LiteralPath $changelog -Destination (Join-Path $staging 'CHANGELOG.md')
 
@@ -75,7 +86,7 @@ function Test-DllMarker {
 }
 
 $dllBytes = [IO.File]::ReadAllBytes((Join-Path $pluginDir 'ThighPhysicsController.dll'))
-foreach ($marker in @($Version, 'Flesh Physics Controller', 'Game DynamicBone chain physics', 'MotionGain', 'EnsureXml', 'RotCalc', 'Remember per-character settings', 'Auto fix spring drift')) {
+foreach ($marker in @($Version, 'Flesh Physics Controller', 'Advanced', 'Stable', 'Natural', 'Dance', 'MotionGain', 'EnsureXml', 'RotCalc', 'Remember per-character settings', 'Auto fix spring drift')) {
     if (-not (Test-DllMarker $dllBytes $marker)) {
         throw "Built DLL is missing expected feature marker: $marker"
     }

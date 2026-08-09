@@ -1,7 +1,5 @@
-using System;
 using System.Collections.Generic;
 using ExtensibleSaveFormat;
-using UnityEngine;
 
 namespace ThighPhysicsController;
 
@@ -10,7 +8,7 @@ public sealed class ThighParams
     public const string DataKey = "codex.koikatumanager.thighphysicscontroller";
 
     // v54 was used by the archived/broken 0.9.0 collider build; keep it skipped.
-    public const int DataVersion = 55;
+    public const int DataVersion = 56;
 
     public bool Enabled = true;
 
@@ -42,36 +40,29 @@ public sealed class ThighParams
     {
         ThighParams p = new ThighParams();
         p.Enabled = true;
-        p.GamePhysics = false;
+        p.GamePhysics = true;
         p.Gravity = 0.05f;
-        p.Weight = 0.7f;
+        p.Weight = 0.8f;
         p.MotionGain = 1f;
         p.JitterFreq = 1f;
         p.MotionSmooth = 0.25f;
-        p.Thigh00.IsRotationCalc = true;
-        p.Thigh00.Damping = 0.12f;
-        p.Thigh00.Elasticity = 0.02f;
-        p.Thigh00.Stiffness = 0.08f;
-        p.Thigh00.Inert = 0.30f;
-        p.Thigh00.CollisionRadius = 0.03f;
-        p.Thigh00.LeverLength = 0f;
-        p.Thigh00.ReflectSpeed = 1f;
-        p.Thigh00.SwayAmplitude = 0.008f;
-        p.Thigh00.DriveGain = 0.5f;
-        p.Thigh00.Spring = 60f;
-        p.Thigh00.PendulumDamping = 0.55f;
+        p.Thigh00.Damping = 0.18f;
+        p.Thigh00.Elasticity = 0.10f;
+        p.Thigh00.Stiffness = 0.12f;
+        p.Thigh00.Inert = 0.35f;
         p.Chain = new ChainParams
         {
-            Weight = 0.7f,
+            Weight = 0.9f,
             Gravity = 0.05f,
-            Damping = 0.30f,
-            Elasticity = 0.25f,
-            Stiffness = 0.9f,
-            Inert = 0.40f,
-            JitterFreq = 1f,
+            Damping = 0.04f,
+            Elasticity = 0.05f,
+            Stiffness = 0.85f,
+            Inert = 0.80f,
+            JitterFreq = 0.20f,
         };
         p.Bones.SetDefaults();
         p.ChainBones.SetChainDefaults();
+        SetChainAmps(p.ChainBones, 1f, 0.8f, 0.3f, 0.3f);
         return p;
     }
 
@@ -87,7 +78,46 @@ public sealed class ThighParams
                 p.ChainBones.Get(i).Amp *= scale;
             }
         }
+        if (part == FleshPartId.Arm)
+        {
+            p.Weight = 0.7f;
+            p.Chain.Weight = 0.7f;
+            p.Chain.Damping = 0.05f;
+            p.Chain.Elasticity = 0.25f;
+            p.Chain.Stiffness = 0.90f;
+            p.Chain.Inert = 0.80f;
+            p.Chain.JitterFreq = 0.15f;
+            SetChainAmps(p.ChainBones, 2f, 0.6f, 0.6f, 0.072f);
+        }
+        else if (part == FleshPartId.Belly)
+        {
+            p.Weight = 0.7f;
+            p.MotionGain = 1.0864f;
+            p.Chain.Weight = 0.7f;
+            p.Chain.Damping = 0.30f;
+            p.Chain.Elasticity = 0.25f;
+            p.Chain.Stiffness = 0.90f;
+            p.Chain.Inert = 0.40f;
+            p.Chain.JitterFreq = 1f;
+            SetChainAmps(p.ChainBones, 0.25f, 0.20f, 0.125f, 0.03f);
+        }
         return p;
+    }
+
+    private static void SetChainAmps(ThighBoneAmounts bones, float first, float second,
+        float third, float fourth)
+    {
+        float[] values = { first, second, third, fourth };
+        for (int i = 0; i < values.Length; i++)
+        {
+            PerBoneAmount bone = bones.Get(i);
+            bone.Enabled = true;
+            bone.Amp = values[i];
+            bone.AxisX = 1f;
+            bone.AxisY = 1f;
+            bone.AxisZ = 1f;
+            bone.RotCalc = true;
+        }
     }
 
     public void WriteData(PluginData data)
@@ -100,7 +130,7 @@ public sealed class ThighParams
         int version = 0;
         if (data.data.ContainsKey("v"))
         {
-            version = Convert.ToInt32(data.data["v"]);
+            version = FleshValue.ConvertInt32(data.data["v"], 0);
         }
         ReadPart(data.data, "", this, version);
     }
@@ -134,59 +164,59 @@ public sealed class ThighParams
     {
         if (data.ContainsKey(prefix + "enabled"))
         {
-            p.Enabled = Convert.ToBoolean(data[prefix + "enabled"]);
+            p.Enabled = FleshValue.ConvertBoolean(data[prefix + "enabled"], p.Enabled);
         }
         if (data.ContainsKey(prefix + "gp"))
         {
-            p.GamePhysics = Convert.ToBoolean(data[prefix + "gp"]);
+            p.GamePhysics = FleshValue.ConvertBoolean(data[prefix + "gp"], p.GamePhysics);
         }
         if (data.ContainsKey(prefix + "gravity"))
         {
-            p.Gravity = Convert.ToSingle(data[prefix + "gravity"]);
+            p.Gravity = ReadFloat(data, prefix + "gravity", -0.2f, 0.2f, p.Gravity);
         }
         if (data.ContainsKey(prefix + "weight"))
         {
-            p.Weight = Convert.ToSingle(data[prefix + "weight"]);
+            p.Weight = ReadFloat(data, prefix + "weight", 0f, 1f, p.Weight);
         }
         if (data.ContainsKey(prefix + "mg"))
         {
-            p.MotionGain = Mathf.Clamp(Convert.ToSingle(data[prefix + "mg"]), 0f, 5f);
+            p.MotionGain = ReadFloat(data, prefix + "mg", 0f, 5f, p.MotionGain);
         }
         if (data.ContainsKey(prefix + "jf"))
         {
-            p.JitterFreq = Mathf.Clamp(Convert.ToSingle(data[prefix + "jf"]), 0f, 2.5f);
+            p.JitterFreq = ReadFloat(data, prefix + "jf", 0f, 2.5f, p.JitterFreq);
         }
         if (data.ContainsKey(prefix + "ms"))
         {
-            p.MotionSmooth = Mathf.Clamp(Convert.ToSingle(data[prefix + "ms"]), 0.05f, 0.5f);
+            p.MotionSmooth = ReadFloat(data, prefix + "ms", 0.05f, 0.5f, p.MotionSmooth);
         }
         if (data.ContainsKey(prefix + "c_w"))
         {
-            p.Chain.Weight = Mathf.Clamp(Convert.ToSingle(data[prefix + "c_w"]), 0f, 1f);
+            p.Chain.Weight = ReadFloat(data, prefix + "c_w", 0f, 1f, p.Chain.Weight);
         }
         if (data.ContainsKey(prefix + "c_g"))
         {
-            p.Chain.Gravity = Mathf.Clamp(Convert.ToSingle(data[prefix + "c_g"]), -0.2f, 0.2f);
+            p.Chain.Gravity = ReadFloat(data, prefix + "c_g", -0.2f, 0.2f, p.Chain.Gravity);
         }
         if (data.ContainsKey(prefix + "c_d"))
         {
-            p.Chain.Damping = Mathf.Clamp(Convert.ToSingle(data[prefix + "c_d"]), 0f, 1f);
+            p.Chain.Damping = ReadFloat(data, prefix + "c_d", 0f, 1f, p.Chain.Damping);
         }
         if (data.ContainsKey(prefix + "c_e"))
         {
-            p.Chain.Elasticity = Mathf.Clamp(Convert.ToSingle(data[prefix + "c_e"]), 0f, 1f);
+            p.Chain.Elasticity = ReadFloat(data, prefix + "c_e", 0f, 1f, p.Chain.Elasticity);
         }
         if (data.ContainsKey(prefix + "c_s"))
         {
-            p.Chain.Stiffness = Mathf.Clamp(Convert.ToSingle(data[prefix + "c_s"]), 0f, 1f);
+            p.Chain.Stiffness = ReadFloat(data, prefix + "c_s", 0f, 1f, p.Chain.Stiffness);
         }
         if (data.ContainsKey(prefix + "c_i"))
         {
-            p.Chain.Inert = Mathf.Clamp(Convert.ToSingle(data[prefix + "c_i"]), 0f, 1f);
+            p.Chain.Inert = ReadFloat(data, prefix + "c_i", 0f, 1f, p.Chain.Inert);
         }
         if (data.ContainsKey(prefix + "c_jf"))
         {
-            p.Chain.JitterFreq = Mathf.Clamp(Convert.ToSingle(data[prefix + "c_jf"]), 0f, 2.5f);
+            p.Chain.JitterFreq = ReadFloat(data, prefix + "c_jf", 0f, 2.5f, p.Chain.JitterFreq);
         }
         ReadBone(data, prefix + "t00", p.Thigh00);
         if (version < 53)
@@ -203,78 +233,43 @@ public sealed class ThighParams
         }
         if (version < 51)
         {
-            // Migration for cards saved before 0.5.0: force the new default feel.
+            // Migration for cards saved before 0.5.0: use the current stable
+            // spring midpoint instead of reviving obsolete under-damped values.
             p.Weight = 0.8f;
-            p.Thigh00.Damping = 0.03f;
-            p.Thigh00.Elasticity = 0.02f;
+            p.Thigh00.Damping = 0.18f;
+            p.Thigh00.Elasticity = 0.10f;
+            p.Thigh00.Stiffness = 0.12f;
+            p.Thigh00.Inert = 0.35f;
+            p.JitterFreq = 1f;
+            p.MotionSmooth = 0.25f;
         }
     }
 
     private static void WriteBone(Dictionary<string, object> data, string prefix, ThighBoneParams bone)
     {
-        data[prefix + "_rot"] = bone.IsRotationCalc;
         data[prefix + "_damp"] = bone.Damping;
         data[prefix + "_elas"] = bone.Elasticity;
         data[prefix + "_stif"] = bone.Stiffness;
         data[prefix + "_inert"] = bone.Inert;
-        data[prefix + "_rad"] = bone.CollisionRadius;
-        data[prefix + "_lever"] = bone.LeverLength;
-        data[prefix + "_speed"] = bone.ReflectSpeed;
-        data[prefix + "_sway"] = bone.SwayAmplitude;
-        data[prefix + "_drive"] = bone.DriveGain;
-        data[prefix + "_spring"] = bone.Spring;
-        data[prefix + "_pdamp"] = bone.PendulumDamping;
     }
 
     private static void ReadBone(Dictionary<string, object> data, string prefix, ThighBoneParams bone)
     {
-        if (data.ContainsKey(prefix + "_rot"))
-        {
-            bone.IsRotationCalc = Convert.ToBoolean(data[prefix + "_rot"]);
-        }
         if (data.ContainsKey(prefix + "_damp"))
         {
-            bone.Damping = Convert.ToSingle(data[prefix + "_damp"]);
+            bone.Damping = ReadFloat(data, prefix + "_damp", 0f, 1f, bone.Damping);
         }
         if (data.ContainsKey(prefix + "_elas"))
         {
-            bone.Elasticity = Convert.ToSingle(data[prefix + "_elas"]);
+            bone.Elasticity = ReadFloat(data, prefix + "_elas", 0f, 1f, bone.Elasticity);
         }
         if (data.ContainsKey(prefix + "_stif"))
         {
-            bone.Stiffness = Convert.ToSingle(data[prefix + "_stif"]);
+            bone.Stiffness = ReadFloat(data, prefix + "_stif", 0f, 1f, bone.Stiffness);
         }
         if (data.ContainsKey(prefix + "_inert"))
         {
-            bone.Inert = Convert.ToSingle(data[prefix + "_inert"]);
-        }
-        if (data.ContainsKey(prefix + "_rad"))
-        {
-            bone.CollisionRadius = Convert.ToSingle(data[prefix + "_rad"]);
-        }
-        if (data.ContainsKey(prefix + "_lever"))
-        {
-            bone.LeverLength = Convert.ToSingle(data[prefix + "_lever"]);
-        }
-        if (data.ContainsKey(prefix + "_speed"))
-        {
-            bone.ReflectSpeed = Convert.ToSingle(data[prefix + "_speed"]);
-        }
-        if (data.ContainsKey(prefix + "_sway"))
-        {
-            bone.SwayAmplitude = Mathf.Clamp(Convert.ToSingle(data[prefix + "_sway"]), 0f, 0.02f);
-        }
-        if (data.ContainsKey(prefix + "_drive"))
-        {
-            bone.DriveGain = Mathf.Clamp(Convert.ToSingle(data[prefix + "_drive"]), 0f, 5f);
-        }
-        if (data.ContainsKey(prefix + "_spring"))
-        {
-            bone.Spring = Mathf.Clamp(Convert.ToSingle(data[prefix + "_spring"]), 1f, 300f);
-        }
-        if (data.ContainsKey(prefix + "_pdamp"))
-        {
-            bone.PendulumDamping = Mathf.Clamp(Convert.ToSingle(data[prefix + "_pdamp"]), 0f, 1f);
+            bone.Inert = ReadFloat(data, prefix + "_inert", 0f, 1f, bone.Inert);
         }
     }
 
@@ -300,31 +295,31 @@ public sealed class ThighParams
             PerBoneAmount amount = bones.Get(i);
             if (data.ContainsKey(prefix + "b" + i + "_en"))
             {
-                amount.Enabled = Convert.ToBoolean(data[prefix + "b" + i + "_en"]);
+                amount.Enabled = FleshValue.ConvertBoolean(data[prefix + "b" + i + "_en"], amount.Enabled);
             }
             if (data.ContainsKey(prefix + "b" + i + "_amp"))
             {
-                amount.Amp = Mathf.Clamp(Convert.ToSingle(data[prefix + "b" + i + "_amp"]), 0f, 2f);
+                amount.Amp = ReadFloat(data, prefix + "b" + i + "_amp", 0f, 2f, amount.Amp);
             }
             if (data.ContainsKey(prefix + "b" + i + "_ax"))
             {
-                amount.AxisX = Mathf.Clamp(Convert.ToSingle(data[prefix + "b" + i + "_ax"]), 0f, 1f);
+                amount.AxisX = ReadFloat(data, prefix + "b" + i + "_ax", 0f, 1f, amount.AxisX);
             }
             if (data.ContainsKey(prefix + "b" + i + "_ay"))
             {
-                amount.AxisY = Mathf.Clamp(Convert.ToSingle(data[prefix + "b" + i + "_ay"]), 0f, 1f);
+                amount.AxisY = ReadFloat(data, prefix + "b" + i + "_ay", 0f, 1f, amount.AxisY);
             }
             if (data.ContainsKey(prefix + "b" + i + "_az"))
             {
-                amount.AxisZ = Mathf.Clamp(Convert.ToSingle(data[prefix + "b" + i + "_az"]), 0f, 1f);
+                amount.AxisZ = ReadFloat(data, prefix + "b" + i + "_az", 0f, 1f, amount.AxisZ);
             }
             if (data.ContainsKey(prefix + "b" + i + "_rot"))
             {
-                amount.RotAmp = Mathf.Clamp(Convert.ToSingle(data[prefix + "b" + i + "_rot"]), 0f, 1f);
+                amount.RotAmp = ReadFloat(data, prefix + "b" + i + "_rot", 0f, 1f, amount.RotAmp);
             }
             if (data.ContainsKey(prefix + "b" + i + "_rc"))
             {
-                amount.RotCalc = Convert.ToBoolean(data[prefix + "b" + i + "_rc"]);
+                amount.RotCalc = FleshValue.ConvertBoolean(data[prefix + "b" + i + "_rc"], amount.RotCalc);
             }
         }
     }
@@ -336,31 +331,31 @@ public sealed class ThighParams
         PerBoneAmount leg = bones.Get(3);
         if (data.ContainsKey(prefix + "b4_en"))
         {
-            leg.Enabled = Convert.ToBoolean(data[prefix + "b4_en"]);
+            leg.Enabled = FleshValue.ConvertBoolean(data[prefix + "b4_en"], leg.Enabled);
         }
         if (data.ContainsKey(prefix + "b4_amp"))
         {
-            leg.Amp = Mathf.Clamp(Convert.ToSingle(data[prefix + "b4_amp"]), 0f, 2f);
+            leg.Amp = ReadFloat(data, prefix + "b4_amp", 0f, 2f, leg.Amp);
         }
         if (data.ContainsKey(prefix + "b4_ax"))
         {
-            leg.AxisX = Mathf.Clamp(Convert.ToSingle(data[prefix + "b4_ax"]), 0f, 1f);
+            leg.AxisX = ReadFloat(data, prefix + "b4_ax", 0f, 1f, leg.AxisX);
         }
         if (data.ContainsKey(prefix + "b4_ay"))
         {
-            leg.AxisY = Mathf.Clamp(Convert.ToSingle(data[prefix + "b4_ay"]), 0f, 1f);
+            leg.AxisY = ReadFloat(data, prefix + "b4_ay", 0f, 1f, leg.AxisY);
         }
         if (data.ContainsKey(prefix + "b4_az"))
         {
-            leg.AxisZ = Mathf.Clamp(Convert.ToSingle(data[prefix + "b4_az"]), 0f, 1f);
+            leg.AxisZ = ReadFloat(data, prefix + "b4_az", 0f, 1f, leg.AxisZ);
         }
         if (data.ContainsKey(prefix + "b4_rot"))
         {
-            leg.RotAmp = Mathf.Clamp(Convert.ToSingle(data[prefix + "b4_rot"]), 0f, 1f);
+            leg.RotAmp = ReadFloat(data, prefix + "b4_rot", 0f, 1f, leg.RotAmp);
         }
         if (data.ContainsKey(prefix + "b4_rc"))
         {
-            leg.RotCalc = Convert.ToBoolean(data[prefix + "b4_rc"]);
+            leg.RotCalc = FleshValue.ConvertBoolean(data[prefix + "b4_rc"], leg.RotCalc);
         }
     }
 
@@ -385,27 +380,27 @@ public sealed class ThighParams
             PerBoneAmount amount = bones.Get(i);
             if (data.ContainsKey(prefix + "cb" + i + "_en"))
             {
-                amount.Enabled = Convert.ToBoolean(data[prefix + "cb" + i + "_en"]);
+                amount.Enabled = FleshValue.ConvertBoolean(data[prefix + "cb" + i + "_en"], amount.Enabled);
             }
             if (data.ContainsKey(prefix + "cb" + i + "_amp"))
             {
-                amount.Amp = Mathf.Clamp(Convert.ToSingle(data[prefix + "cb" + i + "_amp"]), 0f, 2f);
+                amount.Amp = ReadFloat(data, prefix + "cb" + i + "_amp", 0f, 2f, amount.Amp);
             }
             if (data.ContainsKey(prefix + "cb" + i + "_ax"))
             {
-                amount.AxisX = Mathf.Clamp(Convert.ToSingle(data[prefix + "cb" + i + "_ax"]), 0f, 1f);
+                amount.AxisX = ReadFloat(data, prefix + "cb" + i + "_ax", 0f, 1f, amount.AxisX);
             }
             if (data.ContainsKey(prefix + "cb" + i + "_ay"))
             {
-                amount.AxisY = Mathf.Clamp(Convert.ToSingle(data[prefix + "cb" + i + "_ay"]), 0f, 1f);
+                amount.AxisY = ReadFloat(data, prefix + "cb" + i + "_ay", 0f, 1f, amount.AxisY);
             }
             if (data.ContainsKey(prefix + "cb" + i + "_az"))
             {
-                amount.AxisZ = Mathf.Clamp(Convert.ToSingle(data[prefix + "cb" + i + "_az"]), 0f, 1f);
+                amount.AxisZ = ReadFloat(data, prefix + "cb" + i + "_az", 0f, 1f, amount.AxisZ);
             }
             if (data.ContainsKey(prefix + "cb" + i + "_rc"))
             {
-                amount.RotCalc = Convert.ToBoolean(data[prefix + "cb" + i + "_rc"]);
+                amount.RotCalc = FleshValue.ConvertBoolean(data[prefix + "cb" + i + "_rc"], amount.RotCalc);
             }
         }
     }
@@ -416,27 +411,36 @@ public sealed class ThighParams
         PerBoneAmount leg = bones.Get(3);
         if (data.ContainsKey(prefix + "cb4_en"))
         {
-            leg.Enabled = Convert.ToBoolean(data[prefix + "cb4_en"]);
+            leg.Enabled = FleshValue.ConvertBoolean(data[prefix + "cb4_en"], leg.Enabled);
         }
         if (data.ContainsKey(prefix + "cb4_amp"))
         {
-            leg.Amp = Mathf.Clamp(Convert.ToSingle(data[prefix + "cb4_amp"]), 0f, 2f);
+            leg.Amp = ReadFloat(data, prefix + "cb4_amp", 0f, 2f, leg.Amp);
         }
         if (data.ContainsKey(prefix + "cb4_ax"))
         {
-            leg.AxisX = Mathf.Clamp(Convert.ToSingle(data[prefix + "cb4_ax"]), 0f, 1f);
+            leg.AxisX = ReadFloat(data, prefix + "cb4_ax", 0f, 1f, leg.AxisX);
         }
         if (data.ContainsKey(prefix + "cb4_ay"))
         {
-            leg.AxisY = Mathf.Clamp(Convert.ToSingle(data[prefix + "cb4_ay"]), 0f, 1f);
+            leg.AxisY = ReadFloat(data, prefix + "cb4_ay", 0f, 1f, leg.AxisY);
         }
         if (data.ContainsKey(prefix + "cb4_az"))
         {
-            leg.AxisZ = Mathf.Clamp(Convert.ToSingle(data[prefix + "cb4_az"]), 0f, 1f);
+            leg.AxisZ = ReadFloat(data, prefix + "cb4_az", 0f, 1f, leg.AxisZ);
         }
         if (data.ContainsKey(prefix + "cb4_rc"))
         {
-            leg.RotCalc = Convert.ToBoolean(data[prefix + "cb4_rc"]);
+            leg.RotCalc = FleshValue.ConvertBoolean(data[prefix + "cb4_rc"], leg.RotCalc);
         }
+    }
+
+    private static float ReadFloat(Dictionary<string, object> data, string key,
+        float min, float max, float fallback)
+    {
+        object value;
+        return data.TryGetValue(key, out value)
+            ? FleshValue.ConvertClamped(value, min, max, fallback)
+            : fallback;
     }
 }

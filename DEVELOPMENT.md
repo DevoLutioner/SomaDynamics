@@ -13,15 +13,26 @@ FleshPhysicsController\
 ├─ src\ThighPhysicsController\      插件 C# 源码（项目名沿用 ThighPhysicsController）
 │  ├─ ThighPhysicsController.csproj  net20 目标，引用游戏程序集
 │  ├─ FleshPart.cs                  部位定义（Thigh/Arm/Belly 骨骼链）
-│  ├─ ThighParams.cs                参数模型 + 卡片序列化（v53，arm_/belly_ 前缀）
+│  ├─ ThighParams.cs                参数模型 + 卡片序列化（v56，arm_/belly_ 前缀）
+│  ├─ FleshTuning.cs                三项简单参数映射 + 稳定/自然/舞蹈预设
 │  ├─ ThighController.cs            每角色控制器 + 预设 XML 读写
-│  ├─ ThighFleshJiggle.cs           弹簧模式 + 链式模式物理（核心）
+│  ├─ ThighFleshJiggle.cs           Transform 编排 + 两种模式入口
+│  ├─ FleshPhysicsState.cs          Spring/Chain 运行状态
+│  ├─ FleshStateReset.cs            Spring/Chain 统一状态复位
+│  ├─ FleshSafetyGuard.cs           非有限骨骼状态检查
+│  ├─ FleshSpringSolver.cs          弹簧写入策略
+│  ├─ FleshChainSolver.cs           单/多粒子共享链积分
+│  ├─ FleshSolverMath.cs            帧率无关标量映射
+│  ├─ ThighFleshJiggle.Metrics.cs   运行指标采样与日志
 │  ├─ ThighPhysicsControllerPlugin.cs  BepInEx 入口 + 面板
 │  ├─ WindowsFileDialog.cs          Windows 保存/打开对话框（P/Invoke）
-│  └─ Presets\*.xml                 内置预设（Soft/Realistic/Exaggerated）
+│  └─ Presets\                      用户 XML 预设的可选发布目录（默认不内置）
+├─ tests\ParameterModel.Tests\      无游戏运行时的参数模型测试
+├─ tools\Run-FleshSandboxRegression.ps1  CharaStudio 确定性实机回归
+├─ tools\Summarize-FleshPerformance.ps1  按部位/求解器汇总 CPU 微秒基线
 ├─ tools\Build-ThighPhysicsController.ps1  构建 + 打包 + SHA-256
-├─ packaging\FleshPhysicsController_0.8.6.4\ 发行目录（含 README.zh-CN.md、CHANGELOG.md）
-├─ packaging\FleshPhysicsController_0.8.6.4.zip + .sha256
+├─ packaging\FleshPhysicsController_0.8.11.0\ 发行目录（含 README.zh-CN.md、CHANGELOG.md）
+├─ packaging\FleshPhysicsController_0.8.11.0.zip + .sha256
 ├─ README.md                        用户/功能说明
 ├─ CHANGELOG.md                     更新日志
 └─ DEVELOPMENT.md                   本文档
@@ -30,9 +41,9 @@ FleshPhysicsController\
 ## 关键标识（不要乱改）
 
 - GUID：`codex.koikatumanager.thighphysicscontroller`（旧卡数据兼容，不能变）
-- 插件版本：0.8.6.4（`BepInPlugin`）
+- 插件版本：0.8.11.0（`BepInPlugin`）
 - 显示名：Flesh Physics Controller（英文，兼容性更好；中文名“躯体肉感物理控制器”仅用于文档）
-- 卡片数据版本：55（`ThighParams.DataVersion`；v54 为已归档坏版本）
+- 卡片数据版本：56（`ThighParams.DataVersion`；v54 为已归档坏版本）
 - 依赖：KKAPI `marco.kkapi`（不限制最低版本）、ExtensibleSaveFormat、0Harmony
 
 ## 部位与骨骼
@@ -56,11 +67,19 @@ FleshPhysicsController\
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-ThighPhysicsController.ps1
 ```
 
-产物：`packaging\FleshPhysicsController_0.8.6.4\`、ZIP、SHA-256。构建脚本会做版本/功能字符串烟测。
+构建默认先运行 `tests\ParameterModel.Tests`，验证三个部位的基线、简单参数往返、
+单调性、卡片限幅与旧字段清理；只排查构建工具时可临时传 `-SkipTests`。
+
+沙盒回归会同时生成 `metrics.csv` 与 `performance.csv`。当前测试角色、约 157 FPS
+参考值：Chain 约 44.8 μs/帧，Spring 约 39.2 μs/帧（三部位平均耗时相加；仅作为
+同环境回归基线）。旧 Mono 不提供精确的逐线程分配计数；`mono_heap_delta` 为紧邻
+求解器前后的可观测堆增量，本轮均为 0，不能解释成“已证明绝对零分配”。
+
+产物：`packaging\FleshPhysicsController_0.8.11.0\`、ZIP、SHA-256。构建脚本会做版本/功能字符串烟测。
 
 ## 安装与测试
 
-- 安装：把 `packaging\FleshPhysicsController_0.8.6.4\BepInEx\plugins\ThighPhysicsController\`
+- 安装：把 `packaging\FleshPhysicsController_0.8.11.0\BepInEx\plugins\ThighPhysicsController\`
   覆盖到游戏 `BepInEx\plugins\ThighPhysicsController\`。
 - 测试：启动 `CharaStudio.exe`，Insert 打开面板，加载角色卡。
 - 日志：`Z:\Koikatu\output_log.txt`（插件 Debug 日志也写到这）。
@@ -72,7 +91,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-ThighPhysicsCo
 ## 日志格式速查
 
 ```text
-Loading [Flesh Physics Controller 0.8.6.4]
+Loading [Flesh Physics Controller 0.8.11.0]
 Flesh physics initialized: bones=8 part=Thigh
 Flesh physics initialized: bones=6 part=Arm
 Flesh physics initialized: bones=2 part=Belly
@@ -94,8 +113,10 @@ Flesh physics [cf_s_thigh01_L]: applied=(x,y,z) mag=... rot=(...)
   `gain × (weight/0.8) × ((0.25+inert)/0.6)`，默认参数下 gain=1 即 1.0x；
   链式参考系数 0.000384（gain=1 约等于旧版 0.001 驱动），弹簧沿用原有各项系数，
   两边默认手感与之前一致，滑条语义统一；0.8.5 起上限放开到 5
-  （UI/卡片/预设三处同步）。弹簧减抖：Weight 0.7/Damping 0.12/Inert 0.30，
-  加速度平滑 0.45→0.25、X/Z 增益 1.25、驱动 0.00025、弹簧速度阻尼下限 0.8；
+  （UI/卡片/预设三处同步）。当前弹簧中点：Damping 0.18/Elasticity 0.10/
+  Stiffness 0.12/Inert 0.35，
+  加速度平滑 0.45→0.25、X/Z 增益 1.25、驱动 0.00025；弹簧阻尼保留完整
+  0~1 语义并按时间步合成，动态状态围绕重力平衡点积分；
   链式增强：Weight 0.7/Damping 0.30/Inert 0.40，舞蹈驱动系数 0.0006，
   切向限幅 0.05、速度限幅 0.22。
 - 多角色（0.8.5）：角色列表按女性/男性分组（`#序号 名字`），选中按 InstanceID 记忆，
@@ -108,7 +129,7 @@ Flesh physics [cf_s_thigh01_L]: applied=(x,y,z) mag=... rot=(...)
 - 复位与 RC（0.8.5.1）：部位开关关闭时 `LateUpdate` 调用 `ClearDeformation`
   恢复姿态；链式第二遍禁用骨直接复位位置+旋转；`RemoveFlesh` 先复位再销毁，
   防止“清除无效/禁用后再启用把变形当原始姿态”；RC 默认全开
-  （`PerBoneAmount.RotCalc`、`ThighBoneParams.IsRotationCalc`、内置预设），
+  （`PerBoneAmount.RotCalc`、代码预设），
   链式 RC 跳过 `GetAmp<=0` 的骨骼。
 - 弹簧防积累（0.8.5.1）：重锚检测从世界空间改为父空间局部判定
   （`localPosition - (BaseLocal + LastAppliedLocal)`，阈值 0.005m），
@@ -136,7 +157,11 @@ Flesh physics [cf_s_thigh01_L]: applied=(x,y,z) mag=... rot=(...)
 
 - 类名/程序集名/插件目录仍是 ThighPhysicsController（显示名与打包名已改为 Flesh Physics，
   内部标识未全量重命名，避免破坏安装路径、预设目录与旧配置）；
-- `ThighBoneParams` 的 CollisionRadius/LeverLength/ReflectSpeed 等字段仅保留兼容，不参与物理；
+- 0.8.7.0 已删除 `ThighBoneParams` 中不参与物理的旧字段；旧卡中的额外键会被忽略；
+- 0.8.8.0 已移除三个旧内置 XML，改用代码生成且受回归保护的稳定/自然/舞蹈预设；
+- 0.8.9.0 已拆出状态、安全、指标和链积分模块，并为 Chain/Spring 分别建立实机门禁；
+- 0.8.10.0 已统一状态复位、完成两求解器五点柔软度门禁与 30/60/高帧率归一化；
+- 0.8.11.0 已明确简单 UI 的求解器选择、修复 Stable 预设模式，并建立跨卡体型矩阵；
 - 旧版本打包（0.4.10~0.7.2）仍留在 `Z:\Koikatu\DeepSeekEdition\KoikatuManager\packaging\` 作为历史存档。
 - 0.9.0（碰撞体系统）为坏版本，已归档到
   `Z:\Koikatu\DeepSeekEdition\_broken_archive\FleshPhysicsController_0.9.0_20260806\`，不要回滚使用。
