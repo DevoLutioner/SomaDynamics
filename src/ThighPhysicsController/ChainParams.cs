@@ -27,17 +27,4 @@ public sealed class ChainParams
     /// <summary>Chain jitter/oscillation frequency (0..2.5, 1 = default).</summary>
     public float JitterFreq = 1f;
 
-    public ChainParams Clone()
-    {
-        return new ChainParams
-        {
-            Weight = Weight,
-            Gravity = Gravity,
-            Damping = Damping,
-            Elasticity = Elasticity,
-            Stiffness = Stiffness,
-            Inert = Inert,
-            JitterFreq = JitterFreq,
-        };
-    }
 }

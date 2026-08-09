@@ -40,7 +40,4 @@
     </Reference>
     <Reference Include="System.Xml" />
   </ItemGroup>
-  <ItemGroup>
-    <None Include="Presets\Soft.xml" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
 </Project>

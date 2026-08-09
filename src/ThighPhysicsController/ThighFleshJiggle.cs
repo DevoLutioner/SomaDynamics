@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using UnityEngine;
+using static ThighPhysicsController.FleshSafetyGuard;
 
 namespace ThighPhysicsController;
 
@@ -13,80 +15,9 @@ namespace ThighPhysicsController;
 ///   spring + length constraints, anchor movement drives the chain).
 /// </summary>
 [DefaultExecutionOrder(30000)]
-public sealed class ThighFleshJiggle : MonoBehaviour
+public sealed partial class ThighFleshJiggle : MonoBehaviour
 {
     public FleshPartId PartId { get; private set; }
-
-    private static bool IsNan(Vector3 v)
-    {
-        return float.IsNaN(v.x) || float.IsNaN(v.y) || float.IsNaN(v.z) ||
-               float.IsInfinity(v.x) || float.IsInfinity(v.y) || float.IsInfinity(v.z);
-    }
-
-    private static bool IsBadQuat(Quaternion q)
-    {
-        return float.IsNaN(q.x) || float.IsNaN(q.y) || float.IsNaN(q.z) || float.IsNaN(q.w) ||
-               float.IsInfinity(q.x) || float.IsInfinity(q.y) || float.IsInfinity(q.z) || float.IsInfinity(q.w);
-    }
-
-    private sealed class FleshBone
-    {
-        public Transform Bone;
-        public Transform Parent;
-        public Transform AimChild;
-        public Vector3 RestDirLocal;
-        public Vector3 PristineLocal;
-        public Quaternion PristineRot;
-        public Vector3 PristineScale;
-        public Vector3 BaseLocal;
-        public Vector3 Offset;
-        public Vector3 PrevOffset;
-        public Vector3 PrevBaseWorld;
-        public Vector3 PrevBaseWorld2;
-        public Vector3 AccelSmoothed;
-        public Vector3 Position;
-        public Vector3 PrevPosition;
-        public Vector3 LastSag;
-        public int BoneIndex;
-        public Vector3 LastApplied;
-        public Vector3 LastWorldApply;
-        public Vector3 LastAppliedLocal;
-        public Vector3 RotSmoothed;
-        public Quaternion LastSetRot;
-        public Vector3 RotTarget;
-        public bool PhysicsActive;
-        public Quaternion PrevParentRot;
-        public Vector3 AngularVelBody;
-        public float LastOverwriteLogTime;
-        public float DriftWatchTime;
-        public float LastReanchorTime;
-    }
-
-    private sealed class ChainParticle
-    {
-        public Transform Bone;
-        public Transform ParentBone;
-        public Vector3 RestDirLocal;
-        public float RestLength;
-        public int BoneIndex;
-        public Vector3 Position;
-        public Vector3 PrevPosition;
-        public Vector3 LastAppliedLocal;
-        public Vector3 PrevAnimatedLocal;
-        public Vector3 BaseLocal;
-        public Quaternion BaseRotLocal;
-        public Quaternion LastAppliedRotLocal;
-        public Vector3 RotTarget;
-        public Vector3 RotSmoothed;
-    }
-
-    private sealed class SideChain
-    {
-        public Transform Anchor;
-        public Vector3 PrevAnchorPos;
-        public Quaternion PrevAnchorRot;
-        public readonly List<ChainParticle> Particles = new List<ChainParticle>();
-    }
 
     public ChaControl ChaControlRef;
     public ThighParams ParamsRef;
@@ -103,7 +34,6 @@ public sealed class ThighFleshJiggle : MonoBehaviour
     private float _retryTimer;
     private FleshPartId _partId = FleshPartId.Thigh;
     private int _distalIndex = 3;
-
     public void Initialize(ChaControl control, ThighParams param, FleshPartId partId)
     {
         PartId = partId;
@@ -244,6 +174,9 @@ public sealed class ThighFleshJiggle : MonoBehaviour
 
     public void ResetState()
     {
+        ResetMetricWindow();
+        ResetPerformanceWindow();
+        _metricWarmupRemaining = 2f;
         BuildChains();
         for (int i = 0; i < _bones.Count; i++)
         {
@@ -251,22 +184,7 @@ public sealed class ThighFleshJiggle : MonoBehaviour
             // Note: PristineLocal/PristineRot are intentionally NOT re-captured here.
             // They are the card-default pose recorded when the bone was first added, so
             // Clear shape keeps working after switching chain/spring modes.
-            bone.LastSetRot = bone.Bone.localRotation;
-            bone.BaseLocal = bone.Bone.localPosition;
-            bone.Offset = Vector3.zero;
-            bone.PrevOffset = Vector3.zero;
-            bone.PrevBaseWorld = bone.Bone.position;
-            bone.PrevBaseWorld2 = bone.Bone.position;
-            bone.AccelSmoothed = Vector3.zero;
-            bone.LastSag = Vector3.zero;
-            bone.Position = bone.Bone.position;
-            bone.PrevPosition = bone.Bone.position;
-            bone.LastWorldApply = Vector3.zero;
-            bone.LastAppliedLocal = Vector3.zero;
-            bone.DriftWatchTime = 0f;
-            bone.RotSmoothed = Vector3.zero;
-            bone.AngularVelBody = Vector3.zero;
-            bone.PrevParentRot = bone.Bone.parent == null ? Quaternion.identity : bone.Bone.parent.rotation;
+            FleshStateReset.Spring(bone, bone.Bone.localPosition);
         }
     }
 
@@ -281,21 +199,7 @@ public sealed class ThighFleshJiggle : MonoBehaviour
             }
             bone.Bone.localPosition = bone.PristineLocal;
             bone.Bone.localRotation = bone.PristineRot;
-            bone.LastSetRot = bone.PristineRot;
-            bone.BaseLocal = bone.PristineLocal;
-            bone.Offset = Vector3.zero;
-            bone.PrevOffset = Vector3.zero;
-            bone.AccelSmoothed = Vector3.zero;
-            bone.PrevBaseWorld = bone.Bone.position;
-            bone.PrevBaseWorld2 = bone.Bone.position;
-            bone.Position = bone.Bone.position;
-            bone.PrevPosition = bone.Bone.position;
-            bone.LastSag = Vector3.zero;
-            bone.LastApplied = Vector3.zero;
-            bone.LastWorldApply = Vector3.zero;
-            bone.LastAppliedLocal = Vector3.zero;
-            bone.DriftWatchTime = 0f;
-            bone.RotSmoothed = Vector3.zero;
+            FleshStateReset.Spring(bone, bone.PristineLocal);
         }
         // Rebuild chains AFTER restoring the pristine pose, otherwise the chain
         // particles keep the pre-restore (deformed) positions and pull bones back
@@ -309,6 +213,7 @@ public sealed class ThighFleshJiggle : MonoBehaviour
         {
             return;
         }
+        _metricSafetyResets++;
         bool badBone = IsNan(flesh.Bone.localPosition) || IsBadQuat(flesh.Bone.localRotation);
         if (badBone)
         {
@@ -320,32 +225,16 @@ public sealed class ThighFleshJiggle : MonoBehaviour
             Vector3 pristineScale = IsNan(flesh.PristineScale) ? Vector3.one : flesh.PristineScale;
             flesh.Bone.localScale = pristineScale.sqrMagnitude < 1e-8f ? Vector3.one : pristineScale;
         }
-        flesh.LastSetRot = flesh.Bone.localRotation;
-        flesh.BaseLocal = flesh.Bone.localPosition;
-        flesh.Offset = Vector3.zero;
-        flesh.PrevOffset = Vector3.zero;
-        flesh.AccelSmoothed = Vector3.zero;
-        flesh.RotSmoothed = Vector3.zero;
-        flesh.RotTarget = Vector3.zero;
-        flesh.AngularVelBody = Vector3.zero;
-        flesh.LastSag = Vector3.zero;
-        flesh.PrevBaseWorld = flesh.Bone.position;
-        flesh.PrevBaseWorld2 = flesh.Bone.position;
-        flesh.Position = flesh.Bone.position;
-        flesh.PrevPosition = flesh.Bone.position;
-        flesh.LastApplied = Vector3.zero;
-        flesh.LastWorldApply = Vector3.zero;
-        flesh.LastAppliedLocal = Vector3.zero;
-        flesh.DriftWatchTime = 0f;
-        flesh.PrevParentRot = flesh.Bone.parent == null ? Quaternion.identity : flesh.Bone.parent.rotation;
+        FleshStateReset.Spring(flesh, flesh.Bone.localPosition);
     }
 
-    private static void ResetChainParticle(ChainParticle particle)
+    private void ResetChainParticle(ChainParticle particle)
     {
         if (particle == null || particle.Bone == null)
         {
             return;
         }
+        _metricSafetyResets++;
         if (IsNan(particle.BaseLocal))
         {
             particle.BaseLocal = Vector3.zero;
@@ -363,12 +252,7 @@ public sealed class ThighFleshJiggle : MonoBehaviour
         {
             particle.Bone.localScale = Vector3.one;
         }
-        particle.Position = particle.Bone.position;
-        particle.PrevPosition = particle.Bone.position;
-        particle.LastAppliedLocal = Vector3.zero;
-        particle.LastAppliedRotLocal = Quaternion.identity;
-        particle.RotSmoothed = Vector3.zero;
-        particle.RotTarget = Vector3.zero;
+        FleshStateReset.Chain(particle);
     }
 
     private FleshBone AddBone(string name, int boneIndex)
@@ -516,23 +400,21 @@ public sealed class ThighFleshJiggle : MonoBehaviour
         }
         if (ParamsRef.GamePhysics)
         {
+            long allocatedBefore = ReadAllocatedBytes();
+            long started = Stopwatch.GetTimestamp();
             UpdateChainPhysics();
+            RecordSolverDuration(started, allocatedBefore, "Chain");
+            FlushMetrics(Mathf.Min(Time.deltaTime, 0.05f), "Chain");
             return;
         }
+        long springAllocatedBefore = ReadAllocatedBytes();
+        long springStarted = Stopwatch.GetTimestamp();
         UpdateSpringPhysics();
+        RecordSolverDuration(springStarted, springAllocatedBefore, "Spring");
+        FlushMetrics(Mathf.Min(Time.deltaTime, 0.05f), "Spring");
     }
 
     /// <summary>
-    /// Shared Dance response multiplier (UI: "Dance response", 0..3).
-    /// Reference is the default setup (Weight=0.8, Inert=0.35): gain=1 -> 1.0x,
-    /// 2 -> 2.0x, 3 -> 3.0x. Weight and Inert scale it identically in spring and
-    /// chain modes, so the slider means the same thing in both.
-    /// </summary>
-    private static float DanceGainFactor(float gain, float weight, float inert)
-    {
-        return gain * (weight / 0.8f) * ((0.25f + inert) / 0.6f);
-    }
-
     private void UpdateSpringPhysics()
     {
         ThighBoneParams shared = ParamsRef.Thigh00;
@@ -547,6 +429,9 @@ public sealed class ThighFleshJiggle : MonoBehaviour
         float inert = shared.Inert;
         float stiffness = shared.Stiffness;
         float weight = ParamsRef.Weight;
+        float step = dt * 60f;
+        float smoothing = FleshSolverMath.AdjustPerFrameRate(
+            FleshValue.Clamp(ParamsRef.MotionSmooth, 0.05f, 0.5f, 0.25f), dt);
         float maxOffset = 0.009f * (0.4f + weight);
         bool broken = false;
 
@@ -581,21 +466,7 @@ public sealed class ThighFleshJiggle : MonoBehaviour
                     flesh.Parent = parent;
                     flesh.Bone.localPosition = flesh.PristineLocal;
                     flesh.Bone.localRotation = flesh.PristineRot;
-                    flesh.LastSetRot = flesh.PristineRot;
-                    flesh.BaseLocal = flesh.PristineLocal;
-                    flesh.Offset = Vector3.zero;
-                    flesh.PrevOffset = Vector3.zero;
-                    flesh.AccelSmoothed = Vector3.zero;
-                    flesh.LastSag = Vector3.zero;
-                    flesh.PrevBaseWorld = flesh.Bone.position;
-                    flesh.PrevBaseWorld2 = flesh.Bone.position;
-                    flesh.LastApplied = Vector3.zero;
-                    flesh.LastWorldApply = Vector3.zero;
-                    flesh.LastAppliedLocal = Vector3.zero;
-                    flesh.PrevPosition = flesh.Position = flesh.Bone.position;
-                    flesh.RotSmoothed = Vector3.zero;
-                    flesh.AngularVelBody = Vector3.zero;
-                    flesh.PrevParentRot = parent.rotation;
+                    FleshStateReset.Spring(flesh, flesh.PristineLocal);
                     continue;
                 }
                 // Local-space drift check (same as chain mode): parent rotation must
@@ -604,40 +475,22 @@ public sealed class ThighFleshJiggle : MonoBehaviour
                 Vector3 expectedLocal = flesh.BaseLocal + flesh.LastAppliedLocal;
                 if ((flesh.Bone.localPosition - expectedLocal).magnitude > 0.005f)
                 {
+                    _metricReanchors++;
                     // The game or another plugin moved this bone: re-anchor and clear state.
-                    flesh.BaseLocal = flesh.Bone.localPosition;
+                    Vector3 reanchorLocal = flesh.Bone.localPosition;
                     flesh.LastReanchorTime = _time;
                     flesh.Bone.localRotation = flesh.PristineRot;
-                    flesh.LastSetRot = flesh.PristineRot;
-                    flesh.Offset = Vector3.zero;
-                    flesh.PrevOffset = Vector3.zero;
-                    flesh.AccelSmoothed = Vector3.zero;
-                    flesh.LastSag = Vector3.zero;
-                    flesh.PrevBaseWorld = flesh.Bone.position;
-                    flesh.PrevBaseWorld2 = flesh.Bone.position;
-                    flesh.LastWorldApply = Vector3.zero;
-                    flesh.LastApplied = Vector3.zero;
-                    flesh.LastAppliedLocal = Vector3.zero;
-                    flesh.RotSmoothed = Vector3.zero;
-                    flesh.AngularVelBody = Vector3.zero;
-                    flesh.PrevParentRot = parent.rotation;
+                    FleshStateReset.Spring(flesh, reanchorLocal);
                     continue;
                 }
                 Vector3 baseDelta = baseWorld - flesh.PrevBaseWorld;
                 if (baseDelta.magnitude > 0.15f)
                 {
+                    _metricReanchors++;
                     // Large teleport / scene switch: re-anchor without fighting the game.
-                    flesh.PrevBaseWorld2 = flesh.PrevBaseWorld;
-                    flesh.PrevBaseWorld = baseWorld;
-                    flesh.AccelSmoothed = Vector3.zero;
-                    flesh.LastWorldApply = Vector3.zero;
-                    flesh.LastAppliedLocal = Vector3.zero;
-                    flesh.PrevPosition = flesh.Position = flesh.Bone.position;
+                    flesh.Bone.localPosition = flesh.BaseLocal;
                     flesh.Bone.localRotation = flesh.PristineRot;
-                    flesh.LastSetRot = flesh.PristineRot;
-                    flesh.RotSmoothed = Vector3.zero;
-                    flesh.AngularVelBody = Vector3.zero;
-                    flesh.PrevParentRot = parent.rotation;
+                    FleshStateReset.Spring(flesh, flesh.BaseLocal);
                     flesh.LastReanchorTime = _time;
                     continue;
                 }
@@ -646,7 +499,7 @@ public sealed class ThighFleshJiggle : MonoBehaviour
                 flesh.PrevBaseWorld = baseWorld;
                 flesh.AccelSmoothed = Vector3.Lerp(
                     flesh.AccelSmoothed, accel,
-                    Mathf.Clamp(ParamsRef.MotionSmooth, 0.05f, 0.5f));
+                    smoothing);
 
                 Transform character = ChaControlRef == null ? null : ChaControlRef.transform;
                 if (character == null)
@@ -658,21 +511,7 @@ public sealed class ThighFleshJiggle : MonoBehaviour
                 {
                     flesh.Bone.localPosition = flesh.PristineLocal;
                     flesh.Bone.localRotation = flesh.PristineRot;
-                    flesh.LastSetRot = flesh.PristineRot;
-                    flesh.BaseLocal = flesh.PristineLocal;
-                    flesh.Offset = Vector3.zero;
-                    flesh.PrevOffset = Vector3.zero;
-                    flesh.AccelSmoothed = Vector3.zero;
-                    flesh.LastSag = Vector3.zero;
-                    flesh.PrevBaseWorld = flesh.Bone.position;
-                    flesh.PrevBaseWorld2 = flesh.Bone.position;
-                    flesh.LastApplied = Vector3.zero;
-                    flesh.LastWorldApply = Vector3.zero;
-                    flesh.LastAppliedLocal = Vector3.zero;
-                    flesh.PrevPosition = flesh.Position = flesh.Bone.position;
-                    flesh.RotSmoothed = Vector3.zero;
-                    flesh.AngularVelBody = Vector3.zero;
-                    flesh.PrevParentRot = parent.rotation;
+                    FleshStateReset.Spring(flesh, flesh.PristineLocal);
                     continue;
                 }
                 flesh.PhysicsActive = true;
@@ -708,16 +547,18 @@ public sealed class ThighFleshJiggle : MonoBehaviour
                 float angle;
                 Vector3 axis;
                 parentDelta.ToAngleAxis(out angle, out axis);
-                Vector3 angularVel = character.InverseTransformDirection(axis * angle);
+                Vector3 angularVel = character.InverseTransformDirection(axis * angle) /
+                                     Mathf.Max(0.25f, step);
                 Vector3 angularAccel = angularVel - flesh.AngularVelBody;
                 flesh.AngularVelBody = Vector3.Lerp(
                     flesh.AngularVelBody, angularVel,
-                    Mathf.Clamp(ParamsRef.MotionSmooth, 0.05f, 0.5f));
+                    smoothing);
 
                 float motionGain = ParamsRef.MotionGain;
                 // Unified with chain mode: gain=1 at default Weight/Inert is 1.0x,
                 // 2=2x, 3=3x; Weight/Inert scale it identically in both modes.
-                float danceFactor = DanceGainFactor(motionGain, weight, inert);
+                float danceFactor = FleshSolverMath.DanceResponseScale(motionGain, weight, inert);
+                float springDrive = danceFactor * FleshSpringSolver.PartDriveScale(_partId);
                 Vector3 vel = character.InverseTransformDirection(baseDelta);
                 Vector3 gravityLocal = character.InverseTransformDirection(
                     new Vector3(0f, -ParamsRef.Gravity * 0.009f * amp, 0f));
@@ -726,24 +567,25 @@ public sealed class ThighFleshJiggle : MonoBehaviour
                 vel.z *= 1.25f;
                 accelLocal.x *= 1.25f;
                 accelLocal.z *= 1.25f;
-                Vector3 drive = Vector3.ClampMagnitude(accelLocal, 40f) * 0.00025f * amp * danceFactor;
+                Vector3 drive = Vector3.ClampMagnitude(accelLocal, 40f) *
+                                (0.00025f * amp * springDrive * step);
                 Vector3 lever = flesh.Bone.position - parent.position;
                 Vector3 tangential = Vector3.Cross(axis, lever);
                 if (tangential.sqrMagnitude > 0.0001f)
                 {
                     drive -= character.InverseTransformDirection(tangential) *
-                              (angularAccel.magnitude * 0.035f * amp * danceFactor);
+                              (angularAccel.magnitude * 0.035f * amp * springDrive);
                 }
-                vel *= amp * danceFactor;
+                vel *= amp * springDrive;
 
                 float rotAmp = ParamsRef.Bones.GetRotAmp(flesh.BoneIndex);
                 if (rotAmp > 0.0001f)
                 {
                     float maxRot = 20f * rotAmp;
                     flesh.RotTarget = new Vector3(
-                        Mathf.Clamp(accelLocal.z * 1.0f * danceFactor, -maxRot, maxRot),
+                        Mathf.Clamp(accelLocal.z * 1.0f * springDrive, -maxRot, maxRot),
                         0f,
-                        Mathf.Clamp(accelLocal.x * 1.0f * danceFactor, -maxRot, maxRot));
+                        Mathf.Clamp(accelLocal.x * 1.0f * springDrive, -maxRot, maxRot));
                 }
                 else
                 {
@@ -757,16 +599,27 @@ public sealed class ThighFleshJiggle : MonoBehaviour
                     flesh.PrevOffset = sag;
                 }
                 flesh.LastSag = sag;
-                Vector3 springVel = (flesh.Offset - flesh.PrevOffset) *
-                                    Mathf.Clamp(ParamsRef.JitterFreq, 0f, 2.5f);
-                flesh.PrevOffset = flesh.Offset + vel * inert;
-                flesh.Offset += springVel * Mathf.Max(0.80f, 1f - damping) +
-                                gravityLocal + vel * inert + drive;
-                flesh.Offset += (Vector3.zero - flesh.Offset) * elasticity *
-                                Mathf.Clamp(ParamsRef.JitterFreq, 0f, 2.5f);
+                float previousDt = FleshValue.Clamp(flesh.PreviousDt,
+                    1f / 240f, 0.05f, 1f / 60f);
+                float jitter = FleshValue.Clamp(ParamsRef.JitterFreq, 0f, 2.5f, 1f);
+                // Integrate the visible motion around the gravity equilibrium.
+                // Mixing gravity into Offset and then subtracting a separately
+                // calculated sag at write time creates two different equilibria;
+                // the mismatch can pin tight presets to the displacement limit.
+                Vector3 dynamicOffset = flesh.Offset - sag;
+                Vector3 previousDynamicOffset = flesh.PrevOffset - sag;
+                Vector3 springVel = (dynamicOffset - previousDynamicOffset) *
+                                    (dt / previousDt) * jitter;
+                float velocityRetention = FleshSpringSolver.VelocityRetention(damping, dt);
+                flesh.PrevOffset = sag + dynamicOffset + vel * inert;
+                dynamicOffset += springVel * velocityRetention + vel * inert + drive;
+                float returnStrength = FleshSolverMath.AdjustPerFrameRate(
+                    Mathf.Clamp01(elasticity * jitter), dt);
+                dynamicOffset += (Vector3.zero - dynamicOffset) * returnStrength;
+                flesh.PreviousDt = dt;
 
                 float limit = maxOffset * amp * (1f - stiffness * 0.4f);
-                Vector3 offset = flesh.Offset - sag;
+                Vector3 offset = dynamicOffset;
                 Vector3 axisMask = ParamsRef.Bones.GetAxis(flesh.BoneIndex);
                 offset = Vector3.Scale(offset, axisMask);
                 if (offset.magnitude > limit)
@@ -775,7 +628,7 @@ public sealed class ThighFleshJiggle : MonoBehaviour
                 }
                 flesh.Offset = sag + offset;
 
-                if (offset.magnitude > 0.0003f)
+                if (offset.magnitude > FleshSpringSolver.ActivationThreshold(amp))
                 {
                     Vector3 world = character.TransformDirection(offset);
                     Vector3 targetWorld = baseWorld + world;
@@ -803,6 +656,7 @@ public sealed class ThighFleshJiggle : MonoBehaviour
                     flesh.LastAppliedLocal = Vector3.zero;
                     flesh.PrevPosition = flesh.Position = flesh.Bone.position;
                 }
+                RecordMetric(offset);
             }
             catch (Exception)
             {
@@ -866,7 +720,9 @@ public sealed class ThighFleshJiggle : MonoBehaviour
             float rotAmp = ParamsRef.Bones.GetRotAmp(flesh.BoneIndex);
             if (rotAmp > 0.0001f)
             {
-                flesh.RotSmoothed = Vector3.Lerp(flesh.RotSmoothed, flesh.RotTarget, 0.25f);
+                float rotationSmoothing = FleshSolverMath.AdjustPerFrameRate(0.25f, dt);
+                flesh.RotSmoothed = Vector3.Lerp(
+                    flesh.RotSmoothed, flesh.RotTarget, rotationSmoothing);
                 Vector3 rotEuler = flesh.RotSmoothed;
                 rotEuler.x = Mathf.Clamp(rotEuler.x, -30f, 30f);
                 rotEuler.y = Mathf.Clamp(rotEuler.y, -30f, 30f);
@@ -922,7 +778,9 @@ public sealed class ThighFleshJiggle : MonoBehaviour
         // Weight/Inert is 1.0x, 2=2x, 3=3x; Weight/Inert scale it identically in both
         // modes. The reference coefficient 0.000384 keeps the old normalized feel
         // (gain=1 roughly equals the old gain=0.001 drive).
-        float danceDrive = 0.0006f * DanceGainFactor(motionGain, weight, chainParams.Inert);
+        float danceDrive = 0.0006f *
+            FleshSolverMath.DanceResponseScale(motionGain, weight, chainParams.Inert);
+        danceDrive *= FleshSolverMath.ChainMotionTimeScale(_partId, dt);
         bool logChain = ThighPhysicsControllerPlugin.DebugLogFlesh.Value &&
                         _chainTime - _chainLogTime >= 2f;
 
@@ -961,7 +819,7 @@ public sealed class ThighFleshJiggle : MonoBehaviour
             if (chain.Particles.Count == 1)
             {
                 UpdateSingleParticleChain(chain, anchorPos, anchorMove, anchorAngVel,
-                    gravity, weight, danceDrive, chainParams, character);
+                    gravity, weight, danceDrive, chainParams, character, dt);
                 continue;
             }
             first.PrevPosition = first.Position;
@@ -998,12 +856,8 @@ public sealed class ThighFleshJiggle : MonoBehaviour
                 if ((particle.Bone.localPosition -
                      (particle.BaseLocal + particle.LastAppliedLocal)).magnitude > 0.005f)
                 {
-                    particle.BaseLocal = particle.Bone.localPosition;
-                    worldBase = parent == null
-                        ? particle.Bone.position
-                        : parent.TransformPoint(particle.BaseLocal);
-                    particle.Position = particle.PrevPosition = worldBase;
-                    particle.LastAppliedLocal = Vector3.zero;
+                    _metricReanchors++;
+                    worldBase = FleshStateReset.ReanchorChain(particle);
                 }
                 // Rotation base for RC aiming: same local-space reset detection.
                 Quaternion expectedRot = particle.BaseRotLocal * particle.LastAppliedRotLocal;
@@ -1014,21 +868,14 @@ public sealed class ThighFleshJiggle : MonoBehaviour
                 }
                 if (particle.Bone.parent != particle.ParentBone)
                 {
-                    particle.ParentBone = particle.Bone.parent;
-                    particle.BaseLocal = particle.Bone.localPosition;
-                    worldBase = parent == null
-                        ? particle.Bone.position
-                        : parent.TransformPoint(particle.BaseLocal);
-                    particle.Position = particle.PrevPosition = worldBase;
-                    particle.LastAppliedLocal = Vector3.zero;
-                    particle.BaseRotLocal = particle.Bone.localRotation;
-                    particle.LastAppliedRotLocal = Quaternion.identity;
+                    worldBase = FleshStateReset.ReanchorChain(particle);
                     chain.PrevAnchorPos = anchorPos;
                 }
                 float externalDrift = (particle.Bone.localPosition - particle.PrevAnimatedLocal).magnitude;
                 particle.PrevAnimatedLocal = particle.Bone.localPosition;
                 if (externalDrift > 0.6f)
                 {
+                    _metricReanchors++;
                     if (ThighPhysicsControllerPlugin.DebugLogFlesh.Value &&
                         _chainTime - _chainReanchorLogTime >= 2f)
                     {
@@ -1037,14 +884,7 @@ public sealed class ThighFleshJiggle : MonoBehaviour
                             "]: chain re-anchored (teleport, drift=" +
                             externalDrift.ToString("F4") + ")");
                     }
-                    particle.BaseLocal = particle.Bone.localPosition;
-                    worldBase = parent == null
-                        ? particle.Bone.position
-                        : parent.TransformPoint(particle.BaseLocal);
-                    particle.Position = particle.PrevPosition = worldBase;
-                    particle.LastAppliedLocal = Vector3.zero;
-                    particle.BaseRotLocal = particle.Bone.localRotation;
-                    particle.LastAppliedRotLocal = Quaternion.identity;
+                    worldBase = FleshStateReset.ReanchorChain(particle);
                     chain.PrevAnchorPos = anchorPos;
                 }
                 float amp = ParamsRef.ChainBones.GetAmp(particle.BoneIndex);
@@ -1067,48 +907,20 @@ public sealed class ThighFleshJiggle : MonoBehaviour
                     ? prev.BaseRotLocal
                     : prevParent.rotation * prev.BaseRotLocal;
                 particle.RestDirLocal = Quaternion.Inverse(prevBaseWorldRot) * restNow;
-                Vector3 velocity = particle.Position - particle.PrevPosition;
-                velocity = Vector3.ClampMagnitude(velocity, 0.10f);
-                Vector3 radial = particle.Position - anchorPos;
-                Vector3 tangentialDrive = Vector3.ClampMagnitude(
-                    Vector3.Cross(anchorAngVel, radial) * danceDrive, 0.05f);
                 // Semi-implicit Euler: anchor motion and gravity feed the particle's
                 // VELOCITY (inertia), so the flesh lags continuously instead of being
                 // dragged rigidly by the anchor.
-                velocity = velocity * (1f - chainParams.Damping) +
-                           anchorMove * danceDrive +
-                           gravity * weight +
-                           tangentialDrive;
-                velocity = Vector3.ClampMagnitude(velocity, 0.22f);
-                particle.PrevPosition = particle.Position;
-                particle.Position += velocity;
+                FleshChainSolver.Integrate(particle, anchorPos, anchorMove, anchorAngVel,
+                    gravity, weight, danceDrive, chainParams, dt);
                 // Anisotropic spring: hard along the bone axis (no stretching), soft
                 // perpendicular to it (flesh sway). This is what makes it look like
                 // fat swinging instead of a rubber chain wriggling.
-                Vector3 target = prev.Position + restNow;
-                Vector3 toTarget = target - particle.Position;
-                Vector3 axialDir = restNow.sqrMagnitude > 0.0001f ? restNow.normalized : Vector3.zero;
-                float axialDot = Vector3.Dot(toTarget, axialDir);
-                float jitterFreq = Mathf.Clamp(chainParams.JitterFreq, 0f, 2.5f);
-                particle.Position += axialDir * (axialDot * chainParams.Stiffness * jitterFreq);
-                particle.Position += (toTarget - axialDir * axialDot) *
-                                     chainParams.Elasticity * jitterFreq;
-                float maxLength = Mathf.Lerp(particle.RestLength * 1.25f, particle.RestLength, chainParams.Stiffness);
-                Vector3 delta = target - particle.Position;
-                float magnitude = delta.magnitude;
-                if (magnitude > maxLength && magnitude > 0.0001f)
-                {
-                    particle.Position += delta * ((magnitude - maxLength) / magnitude);
-                }
+                FleshChainSolver.ApplySegmentReturn(particle, prev, restNow, chainParams, dt);
                 // Leash: keep the particle near its skeleton-anchored base, scaled by amp
                 // so the amplitude slider stays meaningful instead of being saturated.
-                Vector3 leash = particle.Position - worldBase;
                 float distal = particle.BoneIndex == _distalIndex ? 0.6f : 1f;
                 float leashLimit = (0.03f + 0.012f * amp) * distal;
-                if (leash.magnitude > leashLimit)
-                {
-                    particle.Position = worldBase + leash.normalized * leashLimit;
-                }
+                FleshChainSolver.ApplyLeash(particle, worldBase, leashLimit);
             }
 
             for (int j = 1; j < chain.Particles.Count; j++)
@@ -1238,6 +1050,7 @@ public sealed class ThighFleshJiggle : MonoBehaviour
                     continue;
                 }
                 particle.LastAppliedLocal = particle.Bone.localPosition - particle.BaseLocal;
+                RecordMetric(localDelta);
                 if (logChain)
                 {
                     UnityEngine.Debug.Log("Flesh physics [" + particle.Bone.name + "]: chain applied=" +
@@ -1273,7 +1086,7 @@ public sealed class ThighFleshJiggle : MonoBehaviour
     /// </summary>
     private void UpdateSingleParticleChain(SideChain chain, Vector3 anchorPos,
         Vector3 anchorMove, Vector3 anchorAngVel, Vector3 gravity, float weight,
-        float danceDrive, ChainParams chainParams, Transform character)
+        float danceDrive, ChainParams chainParams, Transform character, float dt)
     {
         ChainParticle particle = chain.Particles[0];
         if (particle == null || particle.Bone == null)
@@ -1300,12 +1113,8 @@ public sealed class ThighFleshJiggle : MonoBehaviour
         if ((particle.Bone.localPosition -
              (particle.BaseLocal + particle.LastAppliedLocal)).magnitude > 0.005f)
         {
-            particle.BaseLocal = particle.Bone.localPosition;
-            worldBase = parent == null
-                ? particle.Bone.position
-                : parent.TransformPoint(particle.BaseLocal);
-            particle.Position = particle.PrevPosition = worldBase;
-            particle.LastAppliedLocal = Vector3.zero;
+            _metricReanchors++;
+            worldBase = FleshStateReset.ReanchorChain(particle);
         }
         float amp = ParamsRef.ChainBones.GetAmp(particle.BoneIndex);
         if (amp <= 0.0001f)
@@ -1321,24 +1130,16 @@ public sealed class ThighFleshJiggle : MonoBehaviour
             particle.LastAppliedLocal = Vector3.zero;
             return;
         }
-        Vector3 velocity = particle.Position - particle.PrevPosition;
-        velocity = Vector3.ClampMagnitude(velocity, 0.10f);
-        Vector3 radial = particle.Position - anchorPos;
-        Vector3 tangentialDrive = Vector3.ClampMagnitude(
-            Vector3.Cross(anchorAngVel, radial) * danceDrive, 0.05f);
-        velocity = velocity * (1f - chainParams.Damping) +
-                   anchorMove * danceDrive +
-                   gravity * weight +
-                   tangentialDrive;
-        velocity = Vector3.ClampMagnitude(velocity, 0.22f);
-        particle.PrevPosition = particle.Position;
-        particle.Position += velocity;
+        FleshChainSolver.Integrate(particle, anchorPos, anchorMove, anchorAngVel,
+            gravity, weight, danceDrive, chainParams, dt);
+        // A one-particle chain has no previous particle/rest segment to supply the
+        // multi-particle solver's return force. Pull it toward the animated base here,
+        // otherwise gravity pins Belly to its leash and Elasticity/Stiffness/JitterFreq
+        // have no effect at all.
+        FleshChainSolver.ApplySingleParticleReturn(particle, worldBase, chainParams, dt);
         Vector3 delta = particle.Position - worldBase;
         float leashLimit = 0.03f + 0.012f * amp;
-        if (delta.magnitude > leashLimit)
-        {
-            particle.Position = worldBase + delta.normalized * leashLimit;
-        }
+        FleshChainSolver.ApplyLeash(particle, worldBase, leashLimit);
         delta = particle.Position - worldBase;
         Vector3 axisMask = ParamsRef.ChainBones.GetAxis(particle.BoneIndex);
         Vector3 localDelta = character.InverseTransformDirection(delta);
@@ -1360,6 +1161,11 @@ public sealed class ThighFleshJiggle : MonoBehaviour
         {
             ResetChainParticle(particle);
         }
-        particle.LastAppliedLocal = particle.Bone.localPosition - particle.BaseLocal;
+        else
+        {
+            particle.LastAppliedLocal = particle.Bone.localPosition - particle.BaseLocal;
+            RecordMetric(localDelta);
+        }
     }
+
 }
