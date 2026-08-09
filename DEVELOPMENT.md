@@ -1,10 +1,9 @@
-# 躯体肉感物理控制器（Flesh Physics Controller）开发交接文档
+# Soma Dynamics｜形体动力学控制器 开发交接文档
 
 ## 这是什么
 
-BepInEx 5 插件（原名 Thigh Physics Controller），为 Koikatu / Koikatsu Party 角色增加
-“肉感物理”：大腿、手臂、小肚子的肉随动作滞后摆动。v0.8.0 起改名
-“躯体肉感物理控制器”。
+BepInEx 5 插件。大腿、手臂、腹部使用自定义 Spring / Chain；胸部、臀部管理游戏原生
+DynamicBone 碰撞链。显示品牌为 Soma Dynamics，内部标识沿用 ThighPhysicsController。
 
 ## 目录结构
 
@@ -12,9 +11,12 @@ BepInEx 5 插件（原名 Thigh Physics Controller），为 Koikatu / Koikatsu P
 FleshPhysicsController\
 ├─ src\ThighPhysicsController\      插件 C# 源码（项目名沿用 ThighPhysicsController）
 │  ├─ ThighPhysicsController.csproj  net20 目标，引用游戏程序集
-│  ├─ FleshPart.cs                  部位定义（Thigh/Arm/Belly 骨骼链）
-│  ├─ ThighParams.cs                参数模型 + 卡片序列化（v56，arm_/belly_ 前缀）
-│  ├─ FleshTuning.cs                三项简单参数映射 + 稳定/自然/舞蹈预设
+│  ├─ FleshPart.cs                  三个自定义物理部位的骨骼定义
+│  ├─ FleshParameterRanges.cs       UI/卡片/XML 的统一参数边界
+│  ├─ ThighParams.cs                参数模型 + 卡片序列化（v61）
+│  ├─ FleshTuning.cs                三项目标映射 + 低/中/高内部基线
+│  ├─ NativeBodyParams.cs           胸臀原生链参数与胸部状态
+│  ├─ NativeDynamicBoneBridge.cs    原生链实时应用（禁止粒子重置）
 │  ├─ ThighController.cs            每角色控制器 + 预设 XML 读写
 │  ├─ ThighFleshJiggle.cs           Transform 编排 + 两种模式入口
 │  ├─ FleshPhysicsState.cs          Spring/Chain 运行状态
@@ -28,11 +30,10 @@ FleshPhysicsController\
 │  ├─ WindowsFileDialog.cs          Windows 保存/打开对话框（P/Invoke）
 │  └─ Presets\                      用户 XML 预设的可选发布目录（默认不内置）
 ├─ tests\ParameterModel.Tests\      无游戏运行时的参数模型测试
-├─ tools\Run-FleshSandboxRegression.ps1  CharaStudio 确定性实机回归
 ├─ tools\Summarize-FleshPerformance.ps1  按部位/求解器汇总 CPU 微秒基线
 ├─ tools\Build-ThighPhysicsController.ps1  构建 + 打包 + SHA-256
-├─ packaging\FleshPhysicsController_0.8.11.0\ 发行目录（含 README.zh-CN.md、CHANGELOG.md）
-├─ packaging\FleshPhysicsController_0.8.11.0.zip + .sha256
+├─ packaging\SomaDynamics_1.0.0.0\ 发行目录（含 README.zh-CN.md、CHANGELOG.md）
+├─ packaging\SomaDynamics_1.0.0.0.zip + .sha256
 ├─ README.md                        用户/功能说明
 ├─ CHANGELOG.md                     更新日志
 └─ DEVELOPMENT.md                   本文档
@@ -41,9 +42,10 @@ FleshPhysicsController\
 ## 关键标识（不要乱改）
 
 - GUID：`codex.koikatumanager.thighphysicscontroller`（旧卡数据兼容，不能变）
-- 插件版本：0.8.11.0（`BepInPlugin`）
-- 显示名：Flesh Physics Controller（英文，兼容性更好；中文名“躯体肉感物理控制器”仅用于文档）
-- 卡片数据版本：56（`ThighParams.DataVersion`；v54 为已归档坏版本）
+- 插件版本：1.0.0.0（`BepInPlugin`）
+- 显示名：Soma Dynamics（中文名“形体动力学控制器”）
+- 卡片数据版本：61（v60 为已移除的胸臀实验 Spring；v54 为已归档坏版本）
+- XML 版本：4
 - 依赖：KKAPI `marco.kkapi`（不限制最低版本）、ExtensibleSaveFormat、0Harmony
 
 ## 部位与骨骼
@@ -55,6 +57,8 @@ FleshPhysicsController\
 | Thigh | cf_j_thigh00_L/R | cf_s_thigh01/02/03 → cf_s_leg02 | 4 骨/侧，共 8 骨 |
 | Arm | cf_j_arm00_L/R | cf_s_arm01/02/03 | 3 骨/侧，共 6 骨 |
 | Belly | cf_j_spine03 | cf_s_waist01 | 1 骨（spine03 为刚性骨，已移除） |
+| Breast Native | 游戏原生 | cf_j_bust01/02/03 | 按服装与坐标保存，保留碰撞 |
+| Butt Native | 游戏原生 | cf_d_siri01 + cf_j_siri_L/R_01 | 共享参数，保留碰撞 |
 
 **重要**：不要给 Belly 加回 `cf_s_waist02`——它是承载双腿（cf_s_leg_L/R）的结构骨，
 跳舞时位移会导致身体皮肤撕裂/消失（0.8.0 已修复并加了 NaN 防护）。
@@ -70,28 +74,27 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-ThighPhysicsCo
 构建默认先运行 `tests\ParameterModel.Tests`，验证三个部位的基线、简单参数往返、
 单调性、卡片限幅与旧字段清理；只排查构建工具时可临时传 `-SkipTests`。
 
-沙盒回归会同时生成 `metrics.csv` 与 `performance.csv`。当前测试角色、约 157 FPS
-参考值：Chain 约 44.8 μs/帧，Spring 约 39.2 μs/帧（三部位平均耗时相加；仅作为
-同环境回归基线）。旧 Mono 不提供精确的逐线程分配计数；`mono_heap_delta` 为紧邻
-求解器前后的可观测堆增量，本轮均为 0，不能解释成“已证明绝对零分配”。
+插件不包含自动载入场景或动作驱动。静态参数测试随正式构建执行；运行日志可用现有离线
+汇总脚本分析。旧 Mono 不提供精确的逐线程分配计数，因此不能把观测到的零堆增量表述为
+“绝对零分配”。
 
-产物：`packaging\FleshPhysicsController_0.8.11.0\`、ZIP、SHA-256。构建脚本会做版本/功能字符串烟测。
+产物：`packaging\SomaDynamics_1.0.0.0\`、ZIP、SHA-256。构建脚本会做版本、UI、
+胸臀 Spring 清除和原生链实时应用安全契约检查。
 
 ## 安装与测试
 
-- 安装：把 `packaging\FleshPhysicsController_0.8.11.0\BepInEx\plugins\ThighPhysicsController\`
+- 安装：把 `packaging\SomaDynamics_1.0.0.0\BepInEx\plugins\ThighPhysicsController\`
   覆盖到游戏 `BepInEx\plugins\ThighPhysicsController\`。
 - 测试：启动 `CharaStudio.exe`，Insert 打开面板，加载角色卡。
 - 日志：`Z:\Koikatu\output_log.txt`（插件 Debug 日志也写到这）。
 - 调试配置：`Z:\Koikatu\BepInEx\config\codex.koikatumanager.thighphysicscontroller.cfg`
   - `Log flesh physics = true`：每 2 秒输出弹簧/链式偏移；
-  - `Auto load studio scene = <角色卡.png>`：自动加载角色；
   - `Dump skeleton bones = true`：启动时转储骨骼层级。
 
 ## 日志格式速查
 
 ```text
-Loading [Flesh Physics Controller 0.8.11.0]
+Loading [Soma Dynamics 1.0.0.0]
 Flesh physics initialized: bones=8 part=Thigh
 Flesh physics initialized: bones=6 part=Arm
 Flesh physics initialized: bones=2 part=Belly
@@ -155,12 +158,13 @@ Flesh physics [cf_s_thigh01_L]: applied=(x,y,z) mag=... rot=(...)
 
 ## 未完成/注意点
 
-- 类名/程序集名/插件目录仍是 ThighPhysicsController（显示名与打包名已改为 Flesh Physics，
+- 类名/程序集名/插件目录仍是 ThighPhysicsController（显示名与打包名已改为 Soma Dynamics，
   内部标识未全量重命名，避免破坏安装路径、预设目录与旧配置）；
 - 0.8.7.0 已删除 `ThighBoneParams` 中不参与物理的旧字段；旧卡中的额外键会被忽略；
-- 0.8.8.0 已移除三个旧内置 XML，改用代码生成且受回归保护的稳定/自然/舞蹈预设；
+- 0.8.8.0 已移除三个旧内置 XML；1.0 UI 将内部基线简化为低/中/高，且不接管模式；
 - 0.8.9.0 已拆出状态、安全、指标和链积分模块，并为 Chain/Spring 分别建立实机门禁；
 - 0.8.10.0 已统一状态复位、完成两求解器五点柔软度门禁与 30/60/高帧率归一化；
+- 1.0.0.0 已整合胸臀原生链，并沿用 BPC Auto Default 的 Soft 参数；
 - 0.8.11.0 已明确简单 UI 的求解器选择、修复 Stable 预设模式，并建立跨卡体型矩阵；
 - 旧版本打包（0.4.10~0.7.2）仍留在 `Z:\Koikatu\DeepSeekEdition\KoikatuManager\packaging\` 作为历史存档。
 - 0.9.0（碰撞体系统）为坏版本，已归档到

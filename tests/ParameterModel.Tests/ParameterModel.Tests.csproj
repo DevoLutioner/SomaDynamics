@@ -11,10 +11,12 @@
     <Compile Include="Program.cs" />
     <Compile Include="..\..\src\ThighPhysicsController\ChainParams.cs" Link="Source\ChainParams.cs" />
     <Compile Include="..\..\src\ThighPhysicsController\FleshPart.cs" Link="Source\FleshPart.cs" />
+    <Compile Include="..\..\src\ThighPhysicsController\FleshParameterRanges.cs" Link="Source\FleshParameterRanges.cs" />
     <Compile Include="..\..\src\ThighPhysicsController\FleshSolverMath.cs" Link="Source\FleshSolverMath.cs" />
     <Compile Include="..\..\src\ThighPhysicsController\FleshSpringSolver.cs" Link="Source\FleshSpringSolver.cs" />
     <Compile Include="..\..\src\ThighPhysicsController\FleshTuning.cs" Link="Source\FleshTuning.cs" />
     <Compile Include="..\..\src\ThighPhysicsController\FleshValue.cs" Link="Source\FleshValue.cs" />
+    <Compile Include="..\..\src\ThighPhysicsController\NativeBodyParams.cs" Link="Source\NativeBodyParams.cs" />
     <Compile Include="..\..\src\ThighPhysicsController\PerBoneAmount.cs" Link="Source\PerBoneAmount.cs" />
     <Compile Include="..\..\src\ThighPhysicsController\ThighBoneAmounts.cs" Link="Source\ThighBoneAmounts.cs" />
     <Compile Include="..\..\src\ThighPhysicsController\ThighBoneParams.cs" Link="Source\ThighBoneParams.cs" />

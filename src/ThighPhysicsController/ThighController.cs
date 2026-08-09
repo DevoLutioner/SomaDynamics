@@ -18,15 +18,23 @@ public sealed class ThighController : CharaCustomFunctionController
 
     public ThighParams BellyParams = ThighParams.CreateDefault();
 
+    public NativeBustProfile BreastProfile = new NativeBustProfile();
+
+    public NativeBodyParams ButtParams = NativeBodyParams.CreateDefault(FleshPartId.Butt);
+
     private readonly List<ThighFleshJiggle> _flesh = new List<ThighFleshJiggle>();
 
     private bool _fleshReady;
 
     private int _pendingApplyFrames;
 
+    private int _pendingNativeApplyFrames;
+
     private bool _skeletonDumped;
 
     private bool _paramsLoaded;
+
+    private NativeDynamicBoneBridge _nativeBody;
 
     public ThighParams GetParams(FleshPartId part)
     {
@@ -53,6 +61,93 @@ public sealed class ThighController : CharaCustomFunctionController
                 break;
         }
         RememberPart(part);
+    }
+
+    public NativeBodyParams GetNativeParams(FleshPartId part)
+    {
+        return part == FleshPartId.Butt ? ButtParams :
+            BreastProfile.Get(CurrentCoordinateIndex, CurrentBustWearState);
+    }
+
+    public void SetNativeParams(FleshPartId part, NativeBodyParams value)
+    {
+        if (part == FleshPartId.Butt)
+            ButtParams = value;
+        else
+            BreastProfile.Set(CurrentCoordinateIndex, CurrentBustWearState, value);
+        RememberPart(part);
+        RequestNativeReapply(1);
+    }
+
+    public int CurrentCoordinateIndex
+    {
+        get
+        {
+            if (ChaControl == null || ((ChaInfo)ChaControl).fileStatus == null)
+                return 0;
+            int value = (int)((ChaInfo)ChaControl).fileStatus.coordinateType;
+            return value < 0 ? 0 : value > 6 ? 6 : value;
+        }
+    }
+
+    /// <summary>0=naked, 1=bra, 2=tops; matches BPC's wear-state selection.</summary>
+    public int CurrentBustWearState
+    {
+        get
+        {
+            if (ChaControl == null || ((ChaInfo)ChaControl).fileStatus == null ||
+                ((ChaInfo)ChaControl).fileStatus.clothesState == null)
+                return 0;
+            byte[] state = ((ChaInfo)ChaControl).fileStatus.clothesState;
+            if (state.Length > 0 && state[0] == 0)
+                return 2;
+            if (state.Length > 2 && state[2] == 0)
+                return 1;
+            return 0;
+        }
+    }
+
+    public string CurrentBustStateLabel
+    {
+        get
+        {
+            string wear = CurrentBustWearState == 2 ? "Tops" :
+                CurrentBustWearState == 1 ? "Bra" : "Naked";
+            return wear + " / Coordinate " + CurrentCoordinateIndex;
+        }
+    }
+
+    internal void CopyCurrentBreastToAllStates()
+    {
+        BreastProfile.SetAll(GetNativeParams(FleshPartId.Breast));
+        RememberPart(FleshPartId.Breast);
+        RequestNativeReapply(1);
+    }
+
+    internal void SetWholeBodyTargets(float strength, float softness, float motion,
+        bool setStrength, bool setSoftness, bool setMotion)
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            FleshPartId part = (FleshPartId)i;
+            ThighParams value = GetParams(part);
+            if (setStrength)
+                FleshTuning.SetStrength(value, strength);
+            if (setSoftness)
+                FleshTuning.SetSoftness(value, part, softness);
+            if (setMotion)
+                FleshTuning.SetMotionTarget(value, motion);
+            RememberPart(part);
+        }
+        BreastProfile.SetTargetsAll(strength, softness, motion, setStrength, setSoftness,
+            setMotion);
+        NativeBodyTuning.SetTargets(ButtParams, FleshPartId.Butt,
+            setStrength ? strength : ButtParams.Strength,
+            setSoftness ? softness : ButtParams.Softness,
+            setMotion ? motion : ButtParams.MotionResponse);
+        RememberPart(FleshPartId.Breast);
+        RememberPart(FleshPartId.Butt);
+        Apply(resetPosition: false);
     }
 
     /// <summary>
@@ -120,6 +215,7 @@ public sealed class ThighController : CharaCustomFunctionController
             }
             _skeletonDumped = false;
             Apply(resetPosition: true);
+            RequestNativeReapply(30);
         }
     }
 
@@ -137,12 +233,16 @@ public sealed class ThighController : CharaCustomFunctionController
         Params.WriteData(data);
         ThighParams.WritePart(data.data, "arm_", ArmParams);
         ThighParams.WritePart(data.data, "belly_", BellyParams);
+        NativeBustProfile.Write(data.data, "breast_", BreastProfile);
+        NativeBodyParams.WritePart(data.data, "butt_", ButtParams);
         SetExtendedData(data);
     }
 
     protected override void OnDestroy()
     {
         RemoveFlesh();
+        if (_nativeBody != null)
+            _nativeBody.RestoreAll();
         ThighPhysicsControllerPlugin.Controllers.Remove(this);
         base.OnDestroy();
     }
@@ -166,6 +266,8 @@ public sealed class ThighController : CharaCustomFunctionController
             Params = profile.Thigh;
             ArmParams = profile.Arm;
             BellyParams = profile.Belly;
+            BreastProfile = profile.Breast;
+            ButtParams = profile.Butt;
         }
         else
         {
@@ -181,6 +283,8 @@ public sealed class ThighController : CharaCustomFunctionController
             }
             ArmParams = ThighParams.CreatePartDefaults(FleshPartId.Arm);
             BellyParams = ThighParams.CreatePartDefaults(FleshPartId.Belly);
+            BreastProfile = new NativeBustProfile();
+            ButtParams = NativeBodyParams.CreateDefault(FleshPartId.Butt);
             if (extended != null && extended.data != null)
             {
                 int version = 0;
@@ -190,6 +294,8 @@ public sealed class ThighController : CharaCustomFunctionController
                 }
                 ThighParams.ReadPart(extended.data, "arm_", ArmParams, version);
                 ThighParams.ReadPart(extended.data, "belly_", BellyParams, version);
+                NativeBustProfile.Read(extended.data, "breast_", BreastProfile, version);
+                NativeBodyParams.ReadPart(extended.data, "butt_", ButtParams, version);
             }
             if (useMemory)
             {
@@ -198,6 +304,8 @@ public sealed class ThighController : CharaCustomFunctionController
                     Thigh = Params,
                     Arm = ArmParams,
                     Belly = BellyParams,
+                    Breast = BreastProfile,
+                    Butt = ButtParams,
                 };
             }
         }
@@ -206,6 +314,8 @@ public sealed class ThighController : CharaCustomFunctionController
             Params.Enabled = true;
             ArmParams.Enabled = true;
             BellyParams.Enabled = true;
+            BreastProfile.SetEnabledAll(true);
+            ButtParams.Enabled = true;
         }
         _paramsLoaded = true;
     }
@@ -229,6 +339,8 @@ public sealed class ThighController : CharaCustomFunctionController
                 Thigh = Params,
                 Arm = ArmParams,
                 Belly = BellyParams,
+                Breast = BreastProfile,
+                Butt = ButtParams,
             };
             ThighPhysicsControllerPlugin.MemoryProfiles[key] = profile;
         }
@@ -239,6 +351,12 @@ public sealed class ThighController : CharaCustomFunctionController
                 break;
             case FleshPartId.Belly:
                 profile.Belly = BellyParams;
+                break;
+            case FleshPartId.Breast:
+                profile.Breast = BreastProfile;
+                break;
+            case FleshPartId.Butt:
+                profile.Butt = ButtParams;
                 break;
             default:
                 profile.Thigh = Params;
@@ -263,6 +381,7 @@ public sealed class ThighController : CharaCustomFunctionController
                 name.IndexOf("momo", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 name.IndexOf("leg", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 name.IndexOf("arm", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                name.IndexOf("bust", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 name.IndexOf("spine", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 name.IndexOf("waist", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 name.IndexOf("kosi", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -287,20 +406,29 @@ public sealed class ThighController : CharaCustomFunctionController
             _skeletonDumped = true;
             DumpSkeleton();
         }
-        if (!Params.Enabled)
+        if (!Params.Enabled && !ArmParams.Enabled && !BellyParams.Enabled)
         {
             RemoveFlesh();
-            _fleshReady = false;
         }
         else
         {
             EnsureFlesh();
             ApplyFlesh(resetPosition);
         }
+        if (_nativeBody == null)
+            _nativeBody = new NativeDynamicBoneBridge(ChaControl);
+        _nativeBody.Apply(FleshPartId.Breast, GetNativeParams(FleshPartId.Breast));
+        _nativeBody.Apply(FleshPartId.Butt, ButtParams);
     }
 
     internal void UpdateTick()
     {
+        if (_pendingNativeApplyFrames > 0)
+        {
+            _pendingNativeApplyFrames--;
+            if (_pendingNativeApplyFrames == 0 && isActiveAndEnabled)
+                ApplyNativeBody();
+        }
         if (_pendingApplyFrames > 0)
         {
             _pendingApplyFrames--;
@@ -309,6 +437,39 @@ public sealed class ThighController : CharaCustomFunctionController
                 Apply(resetPosition: false);
             }
         }
+    }
+
+    internal void RequestNativeReapply(int delayFrames)
+    {
+        _pendingNativeApplyFrames = Math.Max(_pendingNativeApplyFrames,
+            Math.Max(1, delayFrames));
+    }
+
+    internal void OnClothesStateChanged()
+    {
+        RequestNativeReapply(2);
+    }
+
+    internal bool OwnsBustSoft(BustSoft value)
+    {
+        return ChaControl != null && ChaControl.bustSoft == value &&
+               GetNativeParams(FleshPartId.Breast).Enabled;
+    }
+
+    internal bool OwnsBustGravity(BustGravity value)
+    {
+        return ChaControl != null && ChaControl.bustGravity == value &&
+               GetNativeParams(FleshPartId.Breast).Enabled;
+    }
+
+    internal bool ChaControlMatches(ChaControl value)
+    {
+        return ChaControl == value;
+    }
+
+    private void ApplyNativeBody()
+    {
+        Apply(resetPosition: false);
     }
 
     internal void ClearDeformation()
@@ -354,9 +515,18 @@ public sealed class ThighController : CharaCustomFunctionController
             {
                 continue;
             }
-            jiggle.ParamsRef = GetParams(jiggle.PartId);
+            ThighParams activeParams = GetParams(jiggle.PartId);
+            if (!activeParams.Enabled)
+            {
+                if (jiggle.enabled)
+                    jiggle.ClearDeformation();
+                jiggle.enabled = false;
+                continue;
+            }
+            bool wasEnabled = jiggle.enabled;
+            jiggle.ParamsRef = activeParams;
             jiggle.enabled = true;
-            if (resetPosition)
+            if (resetPosition || !wasEnabled)
             {
                 jiggle.ResetState();
             }
@@ -380,28 +550,6 @@ public sealed class ThighController : CharaCustomFunctionController
         _fleshReady = false;
     }
 
-    private Transform FindBone(string boneName)
-    {
-        if (ChaControl == null)
-        {
-            return null;
-        }
-        Transform[] transforms = ChaControl.GetComponentsInChildren<Transform>(true);
-        for (int i = 0; i < transforms.Length; i++)
-        {
-            if (transforms[i].name == boneName)
-            {
-                return transforms[i];
-            }
-        }
-        return null;
-    }
-
-    internal Transform FindBonePublic(string boneName)
-    {
-        return FindBone(boneName);
-    }
-
     internal void SavePreset(string path)
     {
         try
@@ -412,7 +560,7 @@ public sealed class ThighController : CharaCustomFunctionController
             {
                 writer.WriteStartDocument();
                 writer.WriteStartElement("XMLParamThigh");
-                writer.WriteAttributeString("Version", "1");
+                writer.WriteAttributeString("Version", "4");
                 WriteParamBody(writer, "cf_j_thigh00_L", Params);
                 writer.WriteStartElement("ArmPart");
                 WriteParamBody(writer, "cf_j_arm00_L", ArmParams);
@@ -420,6 +568,8 @@ public sealed class ThighController : CharaCustomFunctionController
                 writer.WriteStartElement("BellyPart");
                 WriteParamBody(writer, "cf_j_spine03", BellyParams);
                 writer.WriteEndElement();
+                WriteNativeBody(writer, "BreastPart", GetNativeParams(FleshPartId.Breast));
+                WriteNativeBody(writer, "ButtPart", ButtParams);
                 writer.WriteEndElement();
                 writer.WriteEndDocument();
             }
@@ -447,6 +597,17 @@ public sealed class ThighController : CharaCustomFunctionController
         writer.WriteEndElement();
         WriteBoneAmps(writer, "BoneAmps", p.Bones);
         WriteBoneAmps(writer, "ChainBoneAmps", p.ChainBones);
+    }
+
+    private static void WriteNativeBody(XmlWriter writer, string elementName, NativeBodyParams p)
+    {
+        writer.WriteStartElement(elementName);
+        writer.WriteElementString("Enabled", p.Enabled ? "true" : "false");
+        writer.WriteElementString("Strength", p.Strength.ToString("0.0000"));
+        writer.WriteElementString("Softness", p.Softness.ToString("0.0000"));
+        writer.WriteElementString("MotionResponse", p.MotionResponse.ToString("0.0000"));
+        writer.WriteElementString("Gravity", p.Gravity.ToString("0.000000"));
+        writer.WriteEndElement();
     }
 
     private static void WriteBoneAmps(XmlWriter writer, string elementName, ThighBoneAmounts bones)
@@ -485,6 +646,10 @@ public sealed class ThighController : CharaCustomFunctionController
                 // an mscorlib exception so the panel never hits a TypeLoadException.
                 throw new InvalidOperationException("Not a flesh physics preset: " + path);
             }
+            int presetVersion = 1;
+            int parsedPresetVersion;
+            if (int.TryParse(root.GetAttribute("Version"), out parsedPresetVersion))
+                presetVersion = Math.Max(1, parsedPresetVersion);
             ReadParamBody(root, Params);
             XmlNode armNode = root.SelectSingleNode("ArmPart");
             if (armNode != null)
@@ -496,6 +661,12 @@ public sealed class ThighController : CharaCustomFunctionController
             {
                 ReadParamBody(bellyNode, BellyParams);
             }
+            XmlNode breastNode = root.SelectSingleNode("BreastPart");
+            if (breastNode != null)
+                ReadNativeBody(breastNode, GetNativeParams(FleshPartId.Breast), presetVersion);
+            XmlNode buttNode = root.SelectSingleNode("ButtPart");
+            if (buttNode != null)
+                ReadNativeBody(buttNode, ButtParams, presetVersion);
             UnityEngine.Debug.Log("Thigh preset loaded: " + path);
         }
         catch (Exception ex)
@@ -509,22 +680,25 @@ public sealed class ThighController : CharaCustomFunctionController
         string gravity = GetChildText(node, "Gravity");
         if (gravity.Length > 0)
         {
-            p.Gravity = ReadFiniteText(gravity, -0.2f, 0.2f, p.Gravity);
+            p.Gravity = ReadFiniteText(gravity, -FleshParameterRanges.GravityMax,
+                FleshParameterRanges.GravityMax, p.Gravity);
         }
         string weight = GetChildText(node, "Weight");
         if (weight.Length > 0)
         {
-            p.Weight = ReadFiniteText(weight, 0f, 1f, p.Weight);
+            p.Weight = ReadFiniteText(weight, 0f, FleshParameterRanges.WeightMax,
+                p.Weight);
         }
         string motionGain = GetChildText(node, "MotionGain");
         if (motionGain.Length > 0)
         {
-            p.MotionGain = ReadFiniteText(motionGain, 0f, 5f, p.MotionGain);
+            p.MotionGain = ReadFiniteText(motionGain, 0f,
+                FleshParameterRanges.MotionGainMax, p.MotionGain);
         }
         p.JitterFreq = FleshValue.Clamp(GetFloat(node, "JitterFreq", p.JitterFreq),
-            0f, 2.5f, p.JitterFreq);
+            0f, FleshParameterRanges.JitterFrequencyMax, p.JitterFreq);
         p.MotionSmooth = FleshValue.Clamp(GetFloat(node, "MotionSmooth", p.MotionSmooth),
-            0.05f, 0.5f, p.MotionSmooth);
+            0.05f, FleshParameterRanges.MotionSmoothMax, p.MotionSmooth);
         string gamePhysics = GetChildText(node, "GamePhysics");
         if (gamePhysics.Length > 0)
         {
@@ -533,13 +707,18 @@ public sealed class ThighController : CharaCustomFunctionController
         XmlNode chainParameters = node.SelectSingleNode("ChainParameters");
         if (chainParameters != null)
         {
-            p.Chain.Weight = ReadFiniteChild(chainParameters, "Weight", 0f, 1f, p.Chain.Weight);
-            p.Chain.Gravity = ReadFiniteChild(chainParameters, "Gravity", -0.2f, 0.2f, p.Chain.Gravity);
+            p.Chain.Weight = ReadFiniteChild(chainParameters, "Weight", 0f,
+                FleshParameterRanges.WeightMax, p.Chain.Weight);
+            p.Chain.Gravity = ReadFiniteChild(chainParameters, "Gravity",
+                -FleshParameterRanges.GravityMax, FleshParameterRanges.GravityMax,
+                p.Chain.Gravity);
             p.Chain.Damping = ReadFiniteChild(chainParameters, "Damping", 0f, 1f, p.Chain.Damping);
             p.Chain.Elasticity = ReadFiniteChild(chainParameters, "Elasticity", 0f, 1f, p.Chain.Elasticity);
             p.Chain.Stiffness = ReadFiniteChild(chainParameters, "Stiffness", 0f, 1f, p.Chain.Stiffness);
-            p.Chain.Inert = ReadFiniteChild(chainParameters, "Inert", 0f, 1f, p.Chain.Inert);
-            p.Chain.JitterFreq = ReadFiniteChild(chainParameters, "JitterFreq", 0f, 2.5f,
+            p.Chain.Inert = ReadFiniteChild(chainParameters, "Inert", 0f,
+                FleshParameterRanges.CustomInertMax, p.Chain.Inert);
+            p.Chain.JitterFreq = ReadFiniteChild(chainParameters, "JitterFreq", 0f,
+                FleshParameterRanges.JitterFrequencyMax,
                 p.Chain.JitterFreq);
         }
         XmlNode parameterSets = node.SelectSingleNode("ParameterSets");
@@ -556,11 +735,37 @@ public sealed class ThighController : CharaCustomFunctionController
                     p.Thigh00.Elasticity);
                 p.Thigh00.Stiffness = ReadFiniteChild(child, "Stiffness", 0f, 1f,
                     p.Thigh00.Stiffness);
-                p.Thigh00.Inert = ReadFiniteChild(child, "Inert", 0f, 1f, p.Thigh00.Inert);
+                p.Thigh00.Inert = ReadFiniteChild(child, "Inert", 0f,
+                    FleshParameterRanges.CustomInertMax, p.Thigh00.Inert);
             }
         }
         ReadBoneAmps(node, "BoneAmps", p.Bones);
         ReadBoneAmps(node, "ChainBoneAmps", p.ChainBones);
+    }
+
+    private static void ReadNativeBody(XmlNode node, NativeBodyParams p, int presetVersion)
+    {
+        string enabled = GetChildText(node, "Enabled");
+        if (enabled.Length > 0)
+            p.Enabled = string.Equals(enabled, "true", StringComparison.OrdinalIgnoreCase);
+        float strength = ReadFiniteChild(node, "Strength", 0f,
+            presetVersion < 2 ? 1f : FleshParameterRanges.TargetMax, p.Strength);
+        p.Softness = ReadFiniteChild(node, "Softness", 0f,
+            FleshParameterRanges.TargetMax, p.Softness);
+        float motion = ReadFiniteChild(node, "MotionResponse", 0f,
+            presetVersion < 2 ? 2f : FleshParameterRanges.TargetMax, p.MotionResponse);
+        if (presetVersion < 2)
+        {
+            strength *= 0.5f;
+            motion = 1f - motion * 0.5f;
+        }
+        p.Strength = FleshValue.Clamp(strength, 0f, FleshParameterRanges.TargetMax,
+            p.Strength);
+        p.MotionResponse = FleshValue.Clamp(motion, 0f,
+            FleshParameterRanges.TargetMax, p.MotionResponse);
+        p.Gravity = ReadFiniteChild(node, "Gravity",
+            -FleshParameterRanges.NativeGravityMax,
+            FleshParameterRanges.NativeGravityMax, p.Gravity);
     }
 
     private static void ReadBoneAmps(XmlNode node, string elementName, ThighBoneAmounts bones)
@@ -590,14 +795,19 @@ public sealed class ThighController : CharaCustomFunctionController
             string amp = GetAttribute(child, "Amp");
             if (amp.Length > 0)
             {
-                amount.Amp = ReadFiniteText(amp, 0f, 2f, amount.Amp);
+                amount.Amp = ReadFiniteText(amp, 0f,
+                    FleshParameterRanges.BoneAmplitudeMax, amount.Amp);
             }
-            amount.AxisX = ReadClampedAttr(child, "AxisX", 0f, 1f, amount.AxisX);
-            amount.AxisY = ReadClampedAttr(child, "AxisY", 0f, 1f, amount.AxisY);
-            amount.AxisZ = ReadClampedAttr(child, "AxisZ", 0f, 1f, amount.AxisZ);
+            amount.AxisX = ReadClampedAttr(child, "AxisX", 0f,
+                FleshParameterRanges.AxisScaleMax, amount.AxisX);
+            amount.AxisY = ReadClampedAttr(child, "AxisY", 0f,
+                FleshParameterRanges.AxisScaleMax, amount.AxisY);
+            amount.AxisZ = ReadClampedAttr(child, "AxisZ", 0f,
+                FleshParameterRanges.AxisScaleMax, amount.AxisZ);
             if (elementName == "BoneAmps")
             {
-                amount.RotAmp = ReadClampedAttr(child, "Rot", 0f, 1f, amount.RotAmp);
+                amount.RotAmp = ReadClampedAttr(child, "Rot", 0f,
+                    FleshParameterRanges.RotationAmplitudeMax, amount.RotAmp);
             }
             string rotCalc = GetAttribute(child, "RotCalc");
             if (rotCalc.Length > 0)
@@ -719,4 +929,6 @@ internal sealed class FleshProfile
     public ThighParams Thigh;
     public ThighParams Arm;
     public ThighParams Belly;
+    public NativeBustProfile Breast;
+    public NativeBodyParams Butt;
 }

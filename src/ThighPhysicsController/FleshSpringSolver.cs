@@ -10,7 +10,8 @@ internal static class FleshSpringSolver
     /// </summary>
     public static float ActivationThreshold(float amplitude)
     {
-        amplitude = FleshValue.Clamp(amplitude, 0f, 2f, 1f);
+        amplitude = FleshValue.Clamp(amplitude, 0f,
+            FleshParameterRanges.BoneAmplitudeMax, 1f);
         float scale = amplitude < 0.15f ? 0.15f : amplitude > 1f ? 1f : amplitude;
         return 0.0003f * scale;
     }
@@ -22,7 +23,9 @@ internal static class FleshSpringSolver
     /// </summary>
     public static float PartDriveScale(FleshPartId part)
     {
-        return part == FleshPartId.Belly ? 4f : 1f;
+        if (part == FleshPartId.Belly)
+            return 4f;
+        return 1f;
     }
 
     /// <summary>

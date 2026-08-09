@@ -64,5 +64,12 @@ internal sealed class SideChain
     public Transform Anchor;
     public Vector3 PrevAnchorPos;
     public Quaternion PrevAnchorRot;
+    /// <summary>Most recent raw anchor deltas normalized to one 60 FPS step.</summary>
+    public Vector3 AnchorMoveAt60;
+    public Vector3 AnchorAngularAt60;
+    /// <summary>Second-most-recent normalized samples for the high-FPS median guard.</summary>
+    public Vector3 PreviousAnchorMoveAt60;
+    public Vector3 PreviousAnchorAngularAt60;
+    public int AnchorInputSampleCount;
     public readonly List<ChainParticle> Particles = new List<ChainParticle>();
 }

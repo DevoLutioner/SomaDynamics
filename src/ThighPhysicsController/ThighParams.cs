@@ -8,7 +8,9 @@ public sealed class ThighParams
     public const string DataKey = "codex.koikatumanager.thighphysicscontroller";
 
     // v54 was used by the archived/broken 0.9.0 collider build; keep it skipped.
-    public const int DataVersion = 56;
+    // v60 briefly contained experimental breast/butt spring fields. v61 removes
+    // them; older cards remain compatible because unknown keys are ignored.
+    public const int DataVersion = 61;
 
     public bool Enabled = true;
 
@@ -18,10 +20,10 @@ public sealed class ThighParams
 
     public float Weight = 0.5f;
 
-    /// <summary>Dance/motion response multiplier, 0..5 (UI label: "Dance response").</summary>
+    /// <summary>Dance/motion response multiplier, 0..10 (1 = natural reference).</summary>
     public float MotionGain = 1f;
 
-    /// <summary>Spring jitter/oscillation frequency (0..2.5, 1 = default).</summary>
+    /// <summary>Spring jitter/oscillation frequency (0..5, 1 = default).</summary>
     public float JitterFreq = 1f;
 
     /// <summary>Spring motion-response smoothing (0.05..0.5; lower = smoother).</summary>
@@ -104,6 +106,56 @@ public sealed class ThighParams
         return p;
     }
 
+    public ThighParams Clone()
+    {
+        ThighParams value = new ThighParams
+        {
+            Enabled = Enabled,
+            GamePhysics = GamePhysics,
+            Gravity = Gravity,
+            Weight = Weight,
+            MotionGain = MotionGain,
+            JitterFreq = JitterFreq,
+            MotionSmooth = MotionSmooth,
+            Thigh00 = new ThighBoneParams
+            {
+                Damping = Thigh00.Damping,
+                Elasticity = Thigh00.Elasticity,
+                Stiffness = Thigh00.Stiffness,
+                Inert = Thigh00.Inert,
+            },
+            Chain = new ChainParams
+            {
+                Weight = Chain.Weight,
+                Gravity = Chain.Gravity,
+                Damping = Chain.Damping,
+                Elasticity = Chain.Elasticity,
+                Stiffness = Chain.Stiffness,
+                Inert = Chain.Inert,
+                JitterFreq = Chain.JitterFreq,
+            },
+        };
+        CopyAmounts(Bones, value.Bones);
+        CopyAmounts(ChainBones, value.ChainBones);
+        return value;
+    }
+
+    private static void CopyAmounts(ThighBoneAmounts source, ThighBoneAmounts target)
+    {
+        for (int i = 0; i < 4; i++)
+        {
+            PerBoneAmount from = source.Get(i);
+            PerBoneAmount to = target.Get(i);
+            to.Enabled = from.Enabled;
+            to.Amp = from.Amp;
+            to.AxisX = from.AxisX;
+            to.AxisY = from.AxisY;
+            to.AxisZ = from.AxisZ;
+            to.RotAmp = from.RotAmp;
+            to.RotCalc = from.RotCalc;
+        }
+    }
+
     private static void SetChainAmps(ThighBoneAmounts bones, float first, float second,
         float third, float fourth)
     {
@@ -172,31 +224,39 @@ public sealed class ThighParams
         }
         if (data.ContainsKey(prefix + "gravity"))
         {
-            p.Gravity = ReadFloat(data, prefix + "gravity", -0.2f, 0.2f, p.Gravity);
+            p.Gravity = ReadFloat(data, prefix + "gravity", -FleshParameterRanges.GravityMax,
+                FleshParameterRanges.GravityMax, p.Gravity);
         }
         if (data.ContainsKey(prefix + "weight"))
         {
-            p.Weight = ReadFloat(data, prefix + "weight", 0f, 1f, p.Weight);
+            p.Weight = ReadFloat(data, prefix + "weight", 0f,
+                FleshParameterRanges.WeightMax, p.Weight);
         }
         if (data.ContainsKey(prefix + "mg"))
         {
-            p.MotionGain = ReadFloat(data, prefix + "mg", 0f, 5f, p.MotionGain);
+            p.MotionGain = ReadFloat(data, prefix + "mg", 0f,
+                FleshParameterRanges.MotionGainMax, p.MotionGain);
         }
         if (data.ContainsKey(prefix + "jf"))
         {
-            p.JitterFreq = ReadFloat(data, prefix + "jf", 0f, 2.5f, p.JitterFreq);
+            p.JitterFreq = ReadFloat(data, prefix + "jf", 0f,
+                FleshParameterRanges.JitterFrequencyMax, p.JitterFreq);
         }
         if (data.ContainsKey(prefix + "ms"))
         {
-            p.MotionSmooth = ReadFloat(data, prefix + "ms", 0.05f, 0.5f, p.MotionSmooth);
+            p.MotionSmooth = ReadFloat(data, prefix + "ms", 0.05f,
+                FleshParameterRanges.MotionSmoothMax, p.MotionSmooth);
         }
         if (data.ContainsKey(prefix + "c_w"))
         {
-            p.Chain.Weight = ReadFloat(data, prefix + "c_w", 0f, 1f, p.Chain.Weight);
+            p.Chain.Weight = ReadFloat(data, prefix + "c_w", 0f,
+                FleshParameterRanges.WeightMax, p.Chain.Weight);
         }
         if (data.ContainsKey(prefix + "c_g"))
         {
-            p.Chain.Gravity = ReadFloat(data, prefix + "c_g", -0.2f, 0.2f, p.Chain.Gravity);
+            p.Chain.Gravity = ReadFloat(data, prefix + "c_g",
+                -FleshParameterRanges.GravityMax, FleshParameterRanges.GravityMax,
+                p.Chain.Gravity);
         }
         if (data.ContainsKey(prefix + "c_d"))
         {
@@ -212,11 +272,13 @@ public sealed class ThighParams
         }
         if (data.ContainsKey(prefix + "c_i"))
         {
-            p.Chain.Inert = ReadFloat(data, prefix + "c_i", 0f, 1f, p.Chain.Inert);
+            p.Chain.Inert = ReadFloat(data, prefix + "c_i", 0f,
+                FleshParameterRanges.CustomInertMax, p.Chain.Inert);
         }
         if (data.ContainsKey(prefix + "c_jf"))
         {
-            p.Chain.JitterFreq = ReadFloat(data, prefix + "c_jf", 0f, 2.5f, p.Chain.JitterFreq);
+            p.Chain.JitterFreq = ReadFloat(data, prefix + "c_jf", 0f,
+                FleshParameterRanges.JitterFrequencyMax, p.Chain.JitterFreq);
         }
         ReadBone(data, prefix + "t00", p.Thigh00);
         if (version < 53)
@@ -269,7 +331,8 @@ public sealed class ThighParams
         }
         if (data.ContainsKey(prefix + "_inert"))
         {
-            bone.Inert = ReadFloat(data, prefix + "_inert", 0f, 1f, bone.Inert);
+            bone.Inert = ReadFloat(data, prefix + "_inert", 0f,
+                FleshParameterRanges.CustomInertMax, bone.Inert);
         }
     }
 
@@ -299,23 +362,28 @@ public sealed class ThighParams
             }
             if (data.ContainsKey(prefix + "b" + i + "_amp"))
             {
-                amount.Amp = ReadFloat(data, prefix + "b" + i + "_amp", 0f, 2f, amount.Amp);
+                amount.Amp = ReadFloat(data, prefix + "b" + i + "_amp", 0f,
+                    FleshParameterRanges.BoneAmplitudeMax, amount.Amp);
             }
             if (data.ContainsKey(prefix + "b" + i + "_ax"))
             {
-                amount.AxisX = ReadFloat(data, prefix + "b" + i + "_ax", 0f, 1f, amount.AxisX);
+                amount.AxisX = ReadFloat(data, prefix + "b" + i + "_ax", 0f,
+                    FleshParameterRanges.AxisScaleMax, amount.AxisX);
             }
             if (data.ContainsKey(prefix + "b" + i + "_ay"))
             {
-                amount.AxisY = ReadFloat(data, prefix + "b" + i + "_ay", 0f, 1f, amount.AxisY);
+                amount.AxisY = ReadFloat(data, prefix + "b" + i + "_ay", 0f,
+                    FleshParameterRanges.AxisScaleMax, amount.AxisY);
             }
             if (data.ContainsKey(prefix + "b" + i + "_az"))
             {
-                amount.AxisZ = ReadFloat(data, prefix + "b" + i + "_az", 0f, 1f, amount.AxisZ);
+                amount.AxisZ = ReadFloat(data, prefix + "b" + i + "_az", 0f,
+                    FleshParameterRanges.AxisScaleMax, amount.AxisZ);
             }
             if (data.ContainsKey(prefix + "b" + i + "_rot"))
             {
-                amount.RotAmp = ReadFloat(data, prefix + "b" + i + "_rot", 0f, 1f, amount.RotAmp);
+                amount.RotAmp = ReadFloat(data, prefix + "b" + i + "_rot", 0f,
+                    FleshParameterRanges.RotationAmplitudeMax, amount.RotAmp);
             }
             if (data.ContainsKey(prefix + "b" + i + "_rc"))
             {
@@ -335,23 +403,28 @@ public sealed class ThighParams
         }
         if (data.ContainsKey(prefix + "b4_amp"))
         {
-            leg.Amp = ReadFloat(data, prefix + "b4_amp", 0f, 2f, leg.Amp);
+            leg.Amp = ReadFloat(data, prefix + "b4_amp", 0f,
+                FleshParameterRanges.BoneAmplitudeMax, leg.Amp);
         }
         if (data.ContainsKey(prefix + "b4_ax"))
         {
-            leg.AxisX = ReadFloat(data, prefix + "b4_ax", 0f, 1f, leg.AxisX);
+            leg.AxisX = ReadFloat(data, prefix + "b4_ax", 0f,
+                FleshParameterRanges.AxisScaleMax, leg.AxisX);
         }
         if (data.ContainsKey(prefix + "b4_ay"))
         {
-            leg.AxisY = ReadFloat(data, prefix + "b4_ay", 0f, 1f, leg.AxisY);
+            leg.AxisY = ReadFloat(data, prefix + "b4_ay", 0f,
+                FleshParameterRanges.AxisScaleMax, leg.AxisY);
         }
         if (data.ContainsKey(prefix + "b4_az"))
         {
-            leg.AxisZ = ReadFloat(data, prefix + "b4_az", 0f, 1f, leg.AxisZ);
+            leg.AxisZ = ReadFloat(data, prefix + "b4_az", 0f,
+                FleshParameterRanges.AxisScaleMax, leg.AxisZ);
         }
         if (data.ContainsKey(prefix + "b4_rot"))
         {
-            leg.RotAmp = ReadFloat(data, prefix + "b4_rot", 0f, 1f, leg.RotAmp);
+            leg.RotAmp = ReadFloat(data, prefix + "b4_rot", 0f,
+                FleshParameterRanges.RotationAmplitudeMax, leg.RotAmp);
         }
         if (data.ContainsKey(prefix + "b4_rc"))
         {
@@ -384,19 +457,23 @@ public sealed class ThighParams
             }
             if (data.ContainsKey(prefix + "cb" + i + "_amp"))
             {
-                amount.Amp = ReadFloat(data, prefix + "cb" + i + "_amp", 0f, 2f, amount.Amp);
+                amount.Amp = ReadFloat(data, prefix + "cb" + i + "_amp", 0f,
+                    FleshParameterRanges.BoneAmplitudeMax, amount.Amp);
             }
             if (data.ContainsKey(prefix + "cb" + i + "_ax"))
             {
-                amount.AxisX = ReadFloat(data, prefix + "cb" + i + "_ax", 0f, 1f, amount.AxisX);
+                amount.AxisX = ReadFloat(data, prefix + "cb" + i + "_ax", 0f,
+                    FleshParameterRanges.AxisScaleMax, amount.AxisX);
             }
             if (data.ContainsKey(prefix + "cb" + i + "_ay"))
             {
-                amount.AxisY = ReadFloat(data, prefix + "cb" + i + "_ay", 0f, 1f, amount.AxisY);
+                amount.AxisY = ReadFloat(data, prefix + "cb" + i + "_ay", 0f,
+                    FleshParameterRanges.AxisScaleMax, amount.AxisY);
             }
             if (data.ContainsKey(prefix + "cb" + i + "_az"))
             {
-                amount.AxisZ = ReadFloat(data, prefix + "cb" + i + "_az", 0f, 1f, amount.AxisZ);
+                amount.AxisZ = ReadFloat(data, prefix + "cb" + i + "_az", 0f,
+                    FleshParameterRanges.AxisScaleMax, amount.AxisZ);
             }
             if (data.ContainsKey(prefix + "cb" + i + "_rc"))
             {
@@ -415,19 +492,23 @@ public sealed class ThighParams
         }
         if (data.ContainsKey(prefix + "cb4_amp"))
         {
-            leg.Amp = ReadFloat(data, prefix + "cb4_amp", 0f, 2f, leg.Amp);
+            leg.Amp = ReadFloat(data, prefix + "cb4_amp", 0f,
+                FleshParameterRanges.BoneAmplitudeMax, leg.Amp);
         }
         if (data.ContainsKey(prefix + "cb4_ax"))
         {
-            leg.AxisX = ReadFloat(data, prefix + "cb4_ax", 0f, 1f, leg.AxisX);
+            leg.AxisX = ReadFloat(data, prefix + "cb4_ax", 0f,
+                FleshParameterRanges.AxisScaleMax, leg.AxisX);
         }
         if (data.ContainsKey(prefix + "cb4_ay"))
         {
-            leg.AxisY = ReadFloat(data, prefix + "cb4_ay", 0f, 1f, leg.AxisY);
+            leg.AxisY = ReadFloat(data, prefix + "cb4_ay", 0f,
+                FleshParameterRanges.AxisScaleMax, leg.AxisY);
         }
         if (data.ContainsKey(prefix + "cb4_az"))
         {
-            leg.AxisZ = ReadFloat(data, prefix + "cb4_az", 0f, 1f, leg.AxisZ);
+            leg.AxisZ = ReadFloat(data, prefix + "cb4_az", 0f,
+                FleshParameterRanges.AxisScaleMax, leg.AxisZ);
         }
         if (data.ContainsKey(prefix + "cb4_rc"))
         {

@@ -5,6 +5,8 @@ public enum FleshPartId
     Thigh = 0,
     Arm = 1,
     Belly = 2,
+    Breast = 3,
+    Butt = 4,
 }
 
 public sealed class FleshChainDef

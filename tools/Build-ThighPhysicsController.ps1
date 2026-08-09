@@ -2,7 +2,7 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
 
-    [string]$Version = '0.8.11.0',
+    [string]$Version = '1.0.0.0',
 
     [string]$GameRoot = '',
 
@@ -27,14 +27,43 @@ if ([string]::IsNullOrWhiteSpace($GameRoot)) {
 }
 $GameRoot = [IO.Path]::GetFullPath($GameRoot).TrimEnd('\')
 
-$staging = Join-Path $repoRoot "packaging\FleshPhysicsController_$Version"
+$staging = Join-Path $repoRoot "packaging\SomaDynamics_$Version"
 $pluginDir = Join-Path $staging 'BepInEx\plugins\ThighPhysicsController'
 $presetsDir = Join-Path $pluginDir 'Presets'
 $sourcePresets = Join-Path $repoRoot 'src\ThighPhysicsController\Presets'
+$pluginSource = Join-Path $repoRoot 'src\ThighPhysicsController\ThighPhysicsControllerPlugin.cs'
+$nativeBridgeSource = Join-Path $repoRoot 'src\ThighPhysicsController\NativeDynamicBoneBridge.cs'
 $readme = Join-Path $repoRoot 'README.md'
 $changelog = Join-Path $repoRoot 'CHANGELOG.md'
+$userGuide = Join-Path $repoRoot 'docs\USER_GUIDE.zh-CN.md'
 
-Write-Host "Building Flesh Physics Controller $Version (game root: $GameRoot)"
+Write-Host "Building Soma Dynamics $Version (game root: $GameRoot)"
+$pluginText = Get-Content -LiteralPath $pluginSource -Raw
+$nativeBridgeText = Get-Content -LiteralPath $nativeBridgeSource -Raw
+if ($pluginText -notmatch '_harmony\.PatchAll\(Assembly\.GetExecutingAssembly\(\)\)') {
+    throw 'Native BPC compatibility patches are declared but not registered with Harmony.'
+}
+if ($nativeBridgeText -match '\btarget\.(SetWeight|ResetParticlesPosition)\s*\(') {
+    throw 'Native live-apply path must not change DynamicBone weight or reset colliding particles.'
+}
+$applyStart = $nativeBridgeText.IndexOf('internal void Apply(')
+$restoreStart = $nativeBridgeText.IndexOf('internal void RestoreAll()')
+if ($applyStart -lt 0 -or $restoreStart -le $applyStart) {
+    throw 'Could not isolate NativeDynamicBoneBridge.Apply for safety inspection.'
+}
+$nativeApplyText = $nativeBridgeText.Substring($applyStart, $restoreStart - $applyStart)
+if ($nativeApplyText -match 'ReSetupDynamicBoneBust|ResetPosition|ResetParticlesPosition|SetWeight') {
+    throw 'Native live-apply path must not indirectly reset DynamicBone positions.'
+}
+$bodySourceText = (Get-Content -LiteralPath (Join-Path $repoRoot 'src\ThighPhysicsController\NativeBodyParams.cs') -Raw) +
+    (Get-Content -LiteralPath (Join-Path $repoRoot 'src\ThighPhysicsController\ThighController.cs') -Raw) +
+    $pluginText
+if ($bodySourceText -match '\bSpringMode\b|DrawNativeSpringEditor|BreastSpringPart|ButtSpringPart') {
+    throw 'Removed breast/butt Spring implementation is still present in source.'
+}
+if ($pluginText -match 'DebugRegressionMotion|TryDebugLoadScene|UpdateRegressionMotion|FPC_REGRESSION_STAGE') {
+    throw 'Removed sandbox/runtime motion driver is still present in the plugin.'
+}
 if (-not $SkipTests) {
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'Test-FleshParameterModel.ps1')
     if ($LASTEXITCODE -ne 0) {
@@ -61,6 +90,7 @@ if ($presetFiles.Count -gt 0) {
 }
 Copy-Item -LiteralPath $readme -Destination (Join-Path $staging 'README.zh-CN.md')
 Copy-Item -LiteralPath $changelog -Destination (Join-Path $staging 'CHANGELOG.md')
+Copy-Item -LiteralPath $userGuide -Destination (Join-Path $staging 'USER-GUIDE.zh-CN.md')
 
 # Smoke checks against the freshly built DLL. Metadata strings are UTF-8, user-facing
 # string literals are UTF-16LE in the #US heap, so search both byte encodings.
@@ -86,7 +116,10 @@ function Test-DllMarker {
 }
 
 $dllBytes = [IO.File]::ReadAllBytes((Join-Path $pluginDir 'ThighPhysicsController.dll'))
-foreach ($marker in @($Version, 'Flesh Physics Controller', 'Advanced', 'Stable', 'Natural', 'Dance', 'MotionGain', 'EnsureXml', 'RotCalc', 'Remember per-character settings', 'Auto fix spring drift')) {
+foreach ($marker in @($Version, 'Soma Dynamics', 'Global controls',
+        'Native DynamicBone', 'Advanced', 'Low', 'Medium', 'High', 'MotionGain', 'EnsureXml',
+        'RotCalc', 'Remember per-character settings', 'Auto fix spring drift', 'Breast', 'Butt',
+        'FPC_NATIVE_GUARD', 'FPC_PRESET_APPLY')) {
     if (-not (Test-DllMarker $dllBytes $marker)) {
         throw "Built DLL is missing expected feature marker: $marker"
     }
@@ -95,7 +128,7 @@ foreach ($marker in @($Version, 'Flesh Physics Controller', 'Advanced', 'Stable'
 Write-Host "Staged: $staging"
 
 if (-not $SkipArchive) {
-    $zip = Join-Path $repoRoot "packaging\FleshPhysicsController_$Version.zip"
+    $zip = Join-Path $repoRoot "packaging\SomaDynamics_$Version.zip"
     if (Test-Path $zip) {
         if (-not $Force) {
             throw "Archive already exists: $zip (pass -Force to replace)"
