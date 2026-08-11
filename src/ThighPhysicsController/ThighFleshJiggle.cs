@@ -1023,13 +1023,11 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                 BuildChains();
                 break;
             }
-            // Timeline can directly key a flesh bone. Once any member of a chain is
-            // externally written, every particle velocity and RC target belongs to
-            // the old pose. Re-anchoring only that bone leaves the remaining chain
-            // pulling against it (visible as thigh twisting or self-rotating arms).
-            // Yield this frame and reset the whole chain in-place. If Timeline keeps
-            // keying the chain, Timeline owns it; Chain physics resumes automatically
-            // as soon as those direct writes stop.
+            // Timeline can directly key flesh bones every frame. First remove Soma's
+            // previous output and adopt the current Timeline pose as the clean base.
+            // Normal keyframe motion continues through the solver so Chain remains
+            // visible; only a true pose cut/teleport clears the whole chain for one
+            // frame. This avoids both feedback creep and permanent Timeline lockout.
             if (PrepareCleanChainBaseFrame(chain))
             {
                 ReanchorWholeChain(chain);
@@ -1351,7 +1349,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
 
     private static bool PrepareCleanChainBaseFrame(SideChain chain)
     {
-        bool externalWrite = false;
+        bool resetRequired = false;
         for (int i = 0; i < chain.Particles.Count; i++)
         {
             ChainParticle particle = chain.Particles[i];
@@ -1362,8 +1360,12 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
             Vector3 expectedLocal = particle.BaseLocal + particle.LastAppliedLocal;
             if ((particle.Bone.localPosition - expectedLocal).sqrMagnitude > 0.000001f)
             {
-                particle.BaseLocal = particle.Bone.localPosition;
-                externalWrite = true;
+                Vector3 incomingLocal = particle.Bone.localPosition;
+                if ((incomingLocal - particle.BaseLocal).sqrMagnitude > 0.0064f)
+                {
+                    resetRequired = true;
+                }
+                particle.BaseLocal = incomingLocal;
             }
             else
             {
@@ -1376,8 +1378,12 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
             if (Quaternion.Angle(particle.Bone.localRotation, expectedRot) >
                 ExternalRotationThreshold)
             {
-                particle.BaseRotLocal = particle.Bone.localRotation;
-                externalWrite = true;
+                Quaternion incomingRot = particle.Bone.localRotation;
+                if (Quaternion.Angle(incomingRot, particle.BaseRotLocal) > 35f)
+                {
+                    resetRequired = true;
+                }
+                particle.BaseRotLocal = incomingRot;
             }
             else
             {
@@ -1386,7 +1392,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
             particle.LastAppliedLocal = Vector3.zero;
             particle.LastAppliedRotLocal = Quaternion.identity;
         }
-        return externalWrite;
+        return resetRequired;
     }
 
     private void ReanchorWholeChain(SideChain chain)

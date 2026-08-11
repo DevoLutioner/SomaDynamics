@@ -74,7 +74,7 @@ DLL。如果这些文件已经是 `.disabled`，无需继续处理。
 
 ### 推荐：二合一整合包
 
-1. 下载 `SomaDynamics_1.0.2.2-with-MMD-Stabilizer-v1.2.1.zip`。
+1. 下载 `SomaDynamics_1.0.2.3-with-MMD-Stabilizer-v1.2.1.zip`。
 2. 打开压缩包，确认最外层直接包含 `BepInEx` 文件夹。
 3. 将 `BepInEx` 合并到游戏根目录，也就是包含 `Koikatu.exe` 和
    `CharaStudio.exe` 的目录。
@@ -92,7 +92,7 @@ Soma Dynamics。
 
 ### 独立安装
 
-不使用 MMD 时，只安装 `SomaDynamics_1.0.2.2.zip` 即可。只需要修复 MMD 头发或裙摆时，
+不使用 MMD 时，只安装 `SomaDynamics_1.0.2.3.zip` 即可。只需要修复 MMD 头发或裙摆时，
 也可以单独安装 `MmdDynamicBoneStabilizer-v1.2.1.zip`。
 
 ## 5. 第一次启动
@@ -107,7 +107,7 @@ Soma Dynamics。
 启动日志位于 `BepInEx/LogOutput.log`。正常加载时可搜索：
 
 ```text
-Loading [Soma Dynamics 1.0.2.2]
+Loading [Soma Dynamics 1.0.2.3]
 Loading [MMD DynamicBone Stabilizer 1.1.0]
 MMD DynamicBone stabilization active
 ```
@@ -160,10 +160,10 @@ Soma Dynamics 会将它们换算到统一的距离模型。需要增强舞蹈效
 - XML 导出会保存五个部位、模式和逐骨高级参数，适合分享完整方案。
 - `恢复推荐基线 Reset` 只复位当前部位。
 - `恢复姿态 Restore pose` 只清除当前形变和速度，不改参数。
-- 从 1.0.2.2 起，Studio/Timeline 换角色、换服装、切换或重播动作时只撤销 Soma 自身
+- 从 1.0.2.3 起，Studio/Timeline 换角色、换服装、切换或重播动作时只撤销 Soma 自身
   形变；Chain 会让出载入期并在当前姿势连续稳定两帧后采纳新基准（最多等待 12 帧），
-  不再把角色强制拉回角色卡初始姿势。Timeline 若持续直接写某条形体骨链，该链会逐帧
-  让出 Transform 所有权；直接写入停止后 Chain 自动恢复。
+  不再把角色强制拉回角色卡初始姿势。Timeline 持续写入的连续关键帧会成为 Chain 的实时
+  基准，Soma 继续叠加物理；只有大幅姿势跳转才清零整链一帧。
 
 高级页面向需要逐骨调节的用户。日常使用通常只需要三档预设和三个基础参数。若必须调整
 Amp、轴向、Damping 或 Inert，建议一次只改一个值，并保留 XML 备份。
