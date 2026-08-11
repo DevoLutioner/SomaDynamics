@@ -1,4 +1,4 @@
-# Soma Dynamics｜形体动力学控制器 v1.0.2.0
+# Soma Dynamics｜形体动力学控制器 v1.0.2.1
 
 Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管理大腿、手臂、
 腹部、胸部和臀部。界面以少量感知参数为主，同时保留逐骨高级调节。
@@ -105,7 +105,7 @@ BPC 开发术语。完成迁移后，不需要同时启用以下旧插件：
 
 ## 兼容与数据版本
 
-- 插件版本：`1.0.2.0`
+- 插件版本：`1.0.2.1`
 - 卡片数据版本：`61`
 - XML 版本：`4`
 - GUID：`codex.koikatumanager.thighphysicscontroller`
@@ -123,6 +123,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-ThighPhysicsCo
 
 正式构建会运行参数模型测试、胸臀实时应用安全契约、品牌/UI 字符串烟测，并生成：
 
-- `packaging\SomaDynamics_1.0.2.0\`
-- `packaging\SomaDynamics_1.0.2.0.zip`
-- `packaging\SomaDynamics_1.0.2.0.zip.sha256`
+- `packaging\SomaDynamics_1.0.2.1\`
+- `packaging\SomaDynamics_1.0.2.1.zip`
+- `packaging\SomaDynamics_1.0.2.1.zip.sha256`

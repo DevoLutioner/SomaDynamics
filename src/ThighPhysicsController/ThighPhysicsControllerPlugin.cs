@@ -8,13 +8,14 @@ using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 using KKAPI.Chara;
+using KKAPI.Studio.SaveLoad;
 using Studio;
 using UnityEngine;
 
 namespace ThighPhysicsController;
 
 [BepInDependency("marco.kkapi")]
-[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Soma Dynamics", "1.0.2.0")]
+[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Soma Dynamics", "1.0.2.1")]
 [DefaultExecutionOrder(-1000)]
 public class ThighPhysicsControllerPlugin : BaseUnityPlugin
 {
@@ -103,6 +104,7 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
             // after a body/collision refresh even though the patch classes compile.
             _harmony = new Harmony("codex.koikatumanager.thighphysicscontroller.runtime");
             _harmony.PatchAll(Assembly.GetExecutingAssembly());
+            StudioSaveLoadApi.SceneLoad += OnStudioSceneLoad;
             Logger.LogInfo("Native breast and Studio pose-change patches installed.");
         }
         catch (Exception ex)
@@ -228,6 +230,7 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
 
     private void OnDestroy()
     {
+        StudioSaveLoadApi.SceneLoad -= OnStudioSceneLoad;
         SetInputPatches(false);
         if (_harmony != null)
         {
@@ -257,6 +260,23 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         ThighController controller = FindController(character.charInfo);
         if (controller != null)
             controller.PrepareForStudioPoseChange(2);
+    }
+
+    private static void OnStudioSceneLoad(object sender, SceneLoadEventArgs args)
+    {
+        if (!AutoResetPoseOnStudioChange.Value)
+            return;
+        int prepared = 0;
+        for (int i = Controllers.Count - 1; i >= 0; i--)
+        {
+            ThighController controller = Controllers[i];
+            if (controller == null)
+                continue;
+            controller.PrepareForStudioPoseChange(2);
+            prepared++;
+        }
+        _runtimeLog?.LogInfo("SOMA_SCENE_REBASE operation=" + args.Operation +
+            " controllers=" + prepared);
     }
 
     [HarmonyPatch(typeof(OCIChar), "LoadAnime")]

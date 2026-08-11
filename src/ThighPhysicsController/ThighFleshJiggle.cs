@@ -991,6 +991,18 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                 BuildChains();
                 break;
             }
+            // Timeline can directly key a flesh bone. Once any member of a chain is
+            // externally written, every particle velocity and RC target belongs to
+            // the old pose. Re-anchoring only that bone leaves the remaining chain
+            // pulling against it (visible as thigh twisting or self-rotating arms).
+            // Yield this frame and reset the whole chain in-place. If Timeline keeps
+            // keying the chain, Timeline owns it; Chain physics resumes automatically
+            // as soon as those direct writes stop.
+            if (HasExternalChainWrite(chain))
+            {
+                ReanchorWholeChain(chain);
+                continue;
+            }
             Vector3 anchorPos = chain.Anchor.position;
             Vector3 anchorMove = anchorPos - chain.PrevAnchorPos;
             anchorMove = Vector3.ClampMagnitude(anchorMove, 0.30f);
@@ -1046,19 +1058,6 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
             first.Position = first.Bone.position;
             first.BaseLocal = first.Bone.localPosition;
             first.PrevAnimatedLocal = first.Bone.localPosition;
-            // The first particle is also an RC rotation output. Timeline commonly
-            // keys this bone, but the old loop only ran rotation ownership detection
-            // for particles 1..N. Capture an external first-bone write before RC uses
-            // the base, otherwise the scene-load rotation is replaced by a stale one.
-            Quaternion expectedFirstRot = first.BaseRotLocal * first.LastAppliedRotLocal;
-            if (Quaternion.Angle(first.Bone.localRotation, expectedFirstRot) >
-                ExternalRotationThreshold)
-            {
-                first.BaseRotLocal = first.Bone.localRotation;
-                first.LastAppliedRotLocal = Quaternion.identity;
-                first.RotSmoothed = Vector3.zero;
-                first.RotTarget = Vector3.zero;
-            }
 
             for (int j = 1; j < chain.Particles.Count; j++)
             {
@@ -1091,16 +1090,6 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                 {
                     _metricReanchors++;
                     worldBase = FleshStateReset.ReanchorChain(particle);
-                }
-                // Rotation base for RC aiming: same local-space reset detection.
-                Quaternion expectedRot = particle.BaseRotLocal * particle.LastAppliedRotLocal;
-                if (Quaternion.Angle(particle.Bone.localRotation, expectedRot) >
-                    ExternalRotationThreshold)
-                {
-                    particle.BaseRotLocal = particle.Bone.localRotation;
-                    particle.LastAppliedRotLocal = Quaternion.identity;
-                    particle.RotSmoothed = Vector3.zero;
-                    particle.RotTarget = Vector3.zero;
                 }
                 if (particle.Bone.parent != particle.ParentBone)
                 {
@@ -1326,6 +1315,49 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         chain.PreviousAnchorMoveAt60 = Vector3.zero;
         chain.PreviousAnchorAngularAt60 = Vector3.zero;
         chain.AnchorInputSampleCount = 0;
+    }
+
+    private static bool HasExternalChainWrite(SideChain chain)
+    {
+        for (int i = 0; i < chain.Particles.Count; i++)
+        {
+            ChainParticle particle = chain.Particles[i];
+            if (particle == null || particle.Bone == null)
+            {
+                continue;
+            }
+            Vector3 expectedLocal = particle.BaseLocal + particle.LastAppliedLocal;
+            if ((particle.Bone.localPosition - expectedLocal).sqrMagnitude > 0.000001f)
+            {
+                return true;
+            }
+            Quaternion expectedRot = particle.BaseRotLocal * particle.LastAppliedRotLocal;
+            if (Quaternion.Angle(particle.Bone.localRotation, expectedRot) >
+                ExternalRotationThreshold)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void ReanchorWholeChain(SideChain chain)
+    {
+        _metricReanchors++;
+        for (int i = 0; i < chain.Particles.Count; i++)
+        {
+            ChainParticle particle = chain.Particles[i];
+            if (particle != null && particle.Bone != null)
+            {
+                FleshStateReset.ReanchorChain(particle);
+            }
+        }
+        if (chain.Anchor != null)
+        {
+            chain.PrevAnchorPos = chain.Anchor.position;
+            chain.PrevAnchorRot = chain.Anchor.rotation;
+        }
+        ResetChainInputHistory(chain);
     }
 
     /// <summary>

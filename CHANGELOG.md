@@ -1,5 +1,14 @@
 # 更新日志（CHANGELOG）
 
+## 1.0.2.1（2026-08-11）
+
+- 直接订阅 KKAPI 的 Studio 场景 `Load/Import/Clear` 完成事件，Timeline 场景载入不再依赖
+  `OCIChar.LoadAnime` 是否被调用；新增 `SOMA_SCENE_REBASE` 日志确认场景级重锚。
+- 修复 1.0.2.0 在 Timeline 直接写形体骨时可能出现的手臂自转：检测到任一外部位置或旋转
+  写入后，整条 Chain 原位清除速度和 RC 目标，并在该帧让出骨骼所有权。
+- Timeline 持续直接控制形体骨时由 Timeline 优先；停止直接写入后 Chain 自动恢复，避免两个
+  系统逐帧争夺同一 Transform。
+
 ## 1.0.2.0（2026-08-11）
 
 - 修复 Timeline 场景载入后 Chain 模式大腿扭曲：首粒子现在也会识别外部旋转写入，

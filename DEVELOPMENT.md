@@ -32,8 +32,8 @@ FleshPhysicsController\
 ├─ tests\ParameterModel.Tests\      无游戏运行时的参数模型测试
 ├─ tools\Summarize-FleshPerformance.ps1  按部位/求解器汇总 CPU 微秒基线
 ├─ tools\Build-ThighPhysicsController.ps1  构建 + 打包 + SHA-256
-├─ packaging\SomaDynamics_1.0.2.0\ 发行目录（含 README.zh-CN.md、CHANGELOG.md）
-├─ packaging\SomaDynamics_1.0.2.0.zip + .sha256
+├─ packaging\SomaDynamics_1.0.2.1\ 发行目录（含 README.zh-CN.md、CHANGELOG.md）
+├─ packaging\SomaDynamics_1.0.2.1.zip + .sha256
 ├─ README.md                        用户/功能说明
 ├─ CHANGELOG.md                     更新日志
 └─ DEVELOPMENT.md                   本文档
@@ -42,7 +42,7 @@ FleshPhysicsController\
 ## 关键标识（不要乱改）
 
 - GUID：`codex.koikatumanager.thighphysicscontroller`（旧卡数据兼容，不能变）
-- 插件版本：1.0.2.0（`BepInPlugin`）
+- 插件版本：1.0.2.1（`BepInPlugin`）
 - 显示名：Soma Dynamics（中文名“形体动力学控制器”）
 - 卡片数据版本：61（v60 为已移除的胸臀实验 Spring；v54 为已归档坏版本）
 - XML 版本：4
@@ -78,12 +78,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-ThighPhysicsCo
 汇总脚本分析。旧 Mono 不提供精确的逐线程分配计数，因此不能把观测到的零堆增量表述为
 “绝对零分配”。
 
-产物：`packaging\SomaDynamics_1.0.2.0\`、ZIP、SHA-256。构建脚本会做版本、UI、
+产物：`packaging\SomaDynamics_1.0.2.1\`、ZIP、SHA-256。构建脚本会做版本、UI、
 胸臀 Spring 清除和原生链实时应用安全契约检查。
 
 ## 安装与测试
 
-- 安装：把 `packaging\SomaDynamics_1.0.2.0\BepInEx\plugins\ThighPhysicsController\`
+- 安装：把 `packaging\SomaDynamics_1.0.2.1\BepInEx\plugins\ThighPhysicsController\`
   覆盖到游戏 `BepInEx\plugins\ThighPhysicsController\`。
 - 测试：启动 `CharaStudio.exe`，Insert 打开面板，加载角色卡。
 - 日志：`Z:\Koikatu\output_log.txt`（插件 Debug 日志也写到这）。
@@ -94,7 +94,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-ThighPhysicsCo
 ## 日志格式速查
 
 ```text
-Loading [Soma Dynamics 1.0.2.0]
+Loading [Soma Dynamics 1.0.2.1]
 Flesh physics initialized: bones=8 part=Thigh
 Flesh physics initialized: bones=6 part=Arm
 Flesh physics initialized: bones=2 part=Belly
@@ -168,6 +168,8 @@ Flesh physics [cf_s_thigh01_L]: applied=(x,y,z) mag=... rot=(...)
 - 1.0.1.0 已加入工作室换角色/换动作自动 Pose 复位，并移除关闭诊断时的采样开销；
 - 1.0.2.0 已将 Chain 自动复位改为保留 Timeline 姿势的延迟重锚，并修复首粒子外部旋转
   未被识别导致的载入扭曲；
+- 1.0.2.1 已接入 Studio 场景完成事件，并将外部 Transform 写入恢复改为整链让权/重锚，
+  修复 Timeline 场景中的手臂自转；
 - 0.8.11.0 已明确简单 UI 的求解器选择、修复 Stable 预设模式，并建立跨卡体型矩阵；
 - 旧版本打包（0.4.10~0.7.2）仍留在 `Z:\Koikatu\DeepSeekEdition\KoikatuManager\packaging\` 作为历史存档。
 - 0.9.0（碰撞体系统）为坏版本，已归档到
