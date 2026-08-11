@@ -6,6 +6,9 @@ namespace ThighPhysicsController;
 /// <summary>Shared, side-effect-free scalar mappings used by both solvers.</summary>
 internal static class FleshSolverMath
 {
+    public const float ChainTeleportDistance = 0.08f;
+    public const float ChainTeleportAngle = 35f;
+
     /// <summary>Maps Quaternion.ToAngleAxis output to a signed shortest-path angle.</summary>
     public static float NormalizeSignedAngle(float angle)
     {
@@ -45,6 +48,22 @@ internal static class FleshSolverMath
     {
         return new Vector3(Median3(a.x, b.x, c.x), Median3(a.y, b.y, c.y),
             Median3(a.z, b.z, c.z));
+    }
+
+    /// <summary>
+    /// A Timeline/root teleport must never become a physics impulse. Flesh-bone local
+    /// coordinates do not change when the whole character moves, so this guard is
+    /// deliberately based on the chain anchor's world-space delta.
+    /// </summary>
+    public static bool IsChainAnchorTeleport(float distance, float angleDegrees)
+    {
+        if (float.IsNaN(distance) || float.IsInfinity(distance) ||
+            float.IsNaN(angleDegrees) || float.IsInfinity(angleDegrees))
+        {
+            return true;
+        }
+        return distance > ChainTeleportDistance ||
+               Math.Abs(angleDegrees) > ChainTeleportAngle;
     }
 
     public static float DanceResponseScale(float gain, float weight, float inert)

@@ -1034,14 +1034,37 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                 continue;
             }
             Vector3 anchorPos = chain.Anchor.position;
-            Vector3 anchorMove = anchorPos - chain.PrevAnchorPos;
+            Quaternion anchorRot = chain.Anchor.rotation;
+            Vector3 rawAnchorMove = anchorPos - chain.PrevAnchorPos;
+            float rawAnchorAngle = Quaternion.Angle(anchorRot, chain.PrevAnchorRot);
+            // Moving the whole character through Timeline leaves every flesh bone's
+            // local pose unchanged, so the local jump check above cannot see it. Do
+            // not feed a root teleport into Verlet inertia: rebase for this frame and
+            // resume normal Chain physics on the next one.
+            if (FleshSolverMath.IsChainAnchorTeleport(rawAnchorMove.magnitude,
+                rawAnchorAngle))
+            {
+                if (ThighPhysicsControllerPlugin.DebugLogFlesh.Value &&
+                    _chainTime - _chainReanchorLogTime >= 2f)
+                {
+                    _chainReanchorLogTime = _chainTime;
+                    UnityEngine.Debug.Log("SOMA_CHAIN_TELEPORT part=" + PartId +
+                        " anchor=" + chain.Anchor.name +
+                        " distance=" + rawAnchorMove.magnitude.ToString("F4") +
+                        " angle=" + rawAnchorAngle.ToString("F2") +
+                        " action=reanchor");
+                }
+                ReanchorWholeChain(chain);
+                continue;
+            }
+            Vector3 anchorMove = rawAnchorMove;
             anchorMove = Vector3.ClampMagnitude(anchorMove, 0.30f);
             chain.PrevAnchorPos = anchorPos;
             // Angular velocity of the anchor (dance response): leg rotations drive
             // the chain with a tangential lag, like the spring mode's joint velocity.
             Quaternion prevAnchorRot = chain.PrevAnchorRot;
-            chain.PrevAnchorRot = chain.Anchor.rotation;
-            Quaternion anchorRotDelta = chain.Anchor.rotation * Quaternion.Inverse(prevAnchorRot);
+            chain.PrevAnchorRot = anchorRot;
+            Quaternion anchorRotDelta = anchorRot * Quaternion.Inverse(prevAnchorRot);
             float anchorAngle;
             Vector3 anchorAxis;
             anchorRotDelta.ToAngleAxis(out anchorAngle, out anchorAxis);
@@ -1361,7 +1384,9 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
             if ((particle.Bone.localPosition - expectedLocal).sqrMagnitude > 0.000001f)
             {
                 Vector3 incomingLocal = particle.Bone.localPosition;
-                if ((incomingLocal - particle.BaseLocal).sqrMagnitude > 0.0064f)
+                if ((incomingLocal - particle.BaseLocal).sqrMagnitude >
+                    FleshSolverMath.ChainTeleportDistance *
+                    FleshSolverMath.ChainTeleportDistance)
                 {
                     resetRequired = true;
                 }
@@ -1379,7 +1404,8 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                 ExternalRotationThreshold)
             {
                 Quaternion incomingRot = particle.Bone.localRotation;
-                if (Quaternion.Angle(incomingRot, particle.BaseRotLocal) > 35f)
+                if (Quaternion.Angle(incomingRot, particle.BaseRotLocal) >
+                    FleshSolverMath.ChainTeleportAngle)
                 {
                     resetRequired = true;
                 }

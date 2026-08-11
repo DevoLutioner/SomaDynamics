@@ -565,6 +565,14 @@ internal static class Program
         Near(0.011f, guarded.x, "vector median guards translation spike");
         Near(-0.011f, guarded.y, "vector median guards angular spike");
         Near(0.021f, guarded.z, "vector median preserves smooth component");
+        True(!FleshSolverMath.IsChainAnchorTeleport(0.079f, 34.9f),
+            "ordinary Timeline motion remains a physics input");
+        True(FleshSolverMath.IsChainAnchorTeleport(0.081f, 0f),
+            "whole-character Timeline translation is treated as a teleport");
+        True(FleshSolverMath.IsChainAnchorTeleport(0f, 35.1f),
+            "whole-character Timeline rotation is treated as a teleport");
+        True(FleshSolverMath.IsChainAnchorTeleport(float.NaN, 0f),
+            "invalid anchor motion fails safe instead of entering physics");
         Near(1f, FleshSolverMath.DanceResponseScale(1f, 0.8f, 0.35f),
             "dance response reference is one");
         Near(2f, FleshSolverMath.DanceResponseScale(2f, 0.8f, 0.35f),
