@@ -1,4 +1,4 @@
-# Soma Dynamics｜形体动力学控制器 v1.0.1.0
+# Soma Dynamics｜形体动力学控制器 v1.0.2.0
 
 Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管理大腿、手臂、
 腹部、胸部和臀部。界面以少量感知参数为主，同时保留逐骨高级调节。
@@ -63,7 +63,8 @@ Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管�
 
 - `恢复推荐基线 Reset`：只重置当前部位。
 - `恢复姿态 Restore pose`：清除当前物理形变，不改参数。
-- Studio 中换角色、换服装、切换或重播动作时会自动恢复旧形变，并在新姿态稳定后再次重置。
+- Studio/Timeline 换角色、换服装、切换或重播动作时只撤销 Soma 自身形变，并在新姿态
+  连续稳定两帧后将其采纳为 Chain 基准，不会强制恢复角色卡初始姿势。
 
 ## 高级参数范围
 
@@ -104,7 +105,7 @@ BPC 开发术语。完成迁移后，不需要同时启用以下旧插件：
 
 ## 兼容与数据版本
 
-- 插件版本：`1.0.1.0`
+- 插件版本：`1.0.2.0`
 - 卡片数据版本：`61`
 - XML 版本：`4`
 - GUID：`codex.koikatumanager.thighphysicscontroller`
@@ -122,6 +123,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-ThighPhysicsCo
 
 正式构建会运行参数模型测试、胸臀实时应用安全契约、品牌/UI 字符串烟测，并生成：
 
-- `packaging\SomaDynamics_1.0.1.0\`
-- `packaging\SomaDynamics_1.0.1.0.zip`
-- `packaging\SomaDynamics_1.0.1.0.zip.sha256`
+- `packaging\SomaDynamics_1.0.2.0\`
+- `packaging\SomaDynamics_1.0.2.0.zip`
+- `packaging\SomaDynamics_1.0.2.0.zip.sha256`

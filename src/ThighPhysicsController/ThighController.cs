@@ -30,8 +30,6 @@ public sealed class ThighController : CharaCustomFunctionController
 
     private int _pendingNativeApplyFrames;
 
-    private int _pendingPoseResetFrames;
-
     private bool _skeletonDumped;
 
     private bool _paramsLoaded;
@@ -226,7 +224,7 @@ public sealed class ThighController : CharaCustomFunctionController
             }
             _skeletonDumped = false;
             Apply(resetPosition: true);
-            RequestPoseReset(2);
+            PrepareForStudioPoseChange(2);
             RequestNativeReapply(30);
         }
     }
@@ -449,29 +447,22 @@ public sealed class ThighController : CharaCustomFunctionController
                 Apply(resetPosition: false);
             }
         }
-        if (_pendingPoseResetFrames > 0)
-        {
-            _pendingPoseResetFrames--;
-            if (_pendingPoseResetFrames == 0 && isActiveAndEnabled)
-                RestorePoseAndResetState();
-        }
     }
 
     internal void PrepareForStudioPoseChange(int settleFrames)
     {
         if (!isActiveAndEnabled)
             return;
-        // Clear the outgoing action's deformation before Studio writes the incoming
-        // pose, then reset once more after the new Animator state has settled.
-        RestorePoseAndResetState();
-        RequestPoseReset(settleFrames);
+        // Chain mode yields until the incoming Animator/Timeline pose is visible,
+        // then captures that pose as its new rest frame. Spring keeps its established
+        // reset path because it does not exhibit the Timeline twist.
+        for (int i = 0; i < _flesh.Count; i++)
+        {
+            ThighFleshJiggle jiggle = _flesh[i];
+            if (jiggle != null)
+                jiggle.PrepareForExternalPoseChange(settleFrames);
+        }
         RequestNativeReapply(settleFrames + 1);
-    }
-
-    private void RequestPoseReset(int delayFrames)
-    {
-        _pendingPoseResetFrames = Math.Max(_pendingPoseResetFrames,
-            Math.Max(1, delayFrames));
     }
 
     private void RestorePoseAndResetState()

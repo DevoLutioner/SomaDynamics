@@ -14,7 +14,7 @@ using UnityEngine;
 namespace ThighPhysicsController;
 
 [BepInDependency("marco.kkapi")]
-[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Soma Dynamics", "1.0.1.0")]
+[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Soma Dynamics", "1.0.2.0")]
 [DefaultExecutionOrder(-1000)]
 public class ThighPhysicsControllerPlugin : BaseUnityPlugin
 {
@@ -77,8 +77,8 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
             "does not progressively deform the thighs.");
         AutoResetPoseOnStudioChange = Config.Bind("General",
             "Auto reset pose on Studio character or animation change", true,
-            "Restore Soma deformation before Studio changes a character or animation, " +
-            "then reset solver state after the new pose settles.");
+            "Remove Soma's own deformation before Studio changes a character or animation, " +
+            "then adopt the settled Timeline/Animator pose as the Chain rest frame.");
         DebugCollectMetrics = Config.Bind("Debug", "Collect runtime metrics", false,
             "Log five-second FPC_METRIC windows with mean/RMS/peak offsets and safety reset counts.");
         DebugLogFlesh = Config.Bind("Debug", "Log flesh physics", false,

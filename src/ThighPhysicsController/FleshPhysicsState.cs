@@ -36,6 +36,8 @@ internal sealed class FleshBone
     public float LastOverwriteLogTime;
     public float DriftWatchTime;
     public float LastReanchorTime;
+    public Vector3 PoseSampleLocal;
+    public Quaternion PoseSampleRot;
 }
 
 /// <summary>Mutable Verlet state owned by the chain solver for one flesh bone.</summary>
