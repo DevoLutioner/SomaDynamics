@@ -31,6 +31,8 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
     private float _chainTime;
     private float _chainLogTime;
     private float _chainReanchorLogTime;
+    private bool _metricsEnabledLastFrame;
+    private bool _collectMetricsThisFrame;
     private float _retryTimer;
     private FleshPartId _partId = FleshPartId.Thigh;
     private int _distalIndex = 3;
@@ -205,6 +207,14 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         // particles keep the pre-restore (deformed) positions and pull bones back
         // to the deformation, making repeated Clear shape presses worse.
         BuildChains();
+    }
+
+    public void RestorePoseAndResetState()
+    {
+        ClearDeformation();
+        ResetMetricWindow();
+        ResetPerformanceWindow();
+        _metricWarmupRemaining = 2f;
     }
 
     private void ResetFleshBoneState(FleshBone flesh)
@@ -398,20 +408,34 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
             ClearDeformation();
             return;
         }
+        bool collectMetrics = ThighPhysicsControllerPlugin.DebugCollectMetrics.Value;
+        _collectMetricsThisFrame = collectMetrics;
+        if (!collectMetrics && _metricsEnabledLastFrame)
+        {
+            ResetMetricWindow();
+            ResetPerformanceWindow();
+        }
+        _metricsEnabledLastFrame = collectMetrics;
         if (ParamsRef.GamePhysics)
         {
-            long allocatedBefore = ReadAllocatedBytes();
-            long started = Stopwatch.GetTimestamp();
+            long allocatedBefore = collectMetrics ? ReadAllocatedBytes() : -1L;
+            long started = collectMetrics ? Stopwatch.GetTimestamp() : 0L;
             UpdateChainPhysics();
-            RecordSolverDuration(started, allocatedBefore, "Chain");
-            FlushMetrics(Mathf.Min(Time.deltaTime, 0.05f), "Chain");
+            if (collectMetrics)
+            {
+                RecordSolverDuration(started, allocatedBefore, "Chain");
+                FlushMetrics(Mathf.Min(Time.deltaTime, 0.05f), "Chain");
+            }
             return;
         }
-        long springAllocatedBefore = ReadAllocatedBytes();
-        long springStarted = Stopwatch.GetTimestamp();
+        long springAllocatedBefore = collectMetrics ? ReadAllocatedBytes() : -1L;
+        long springStarted = collectMetrics ? Stopwatch.GetTimestamp() : 0L;
         UpdateSpringPhysics();
-        RecordSolverDuration(springStarted, springAllocatedBefore, "Spring");
-        FlushMetrics(Mathf.Min(Time.deltaTime, 0.05f), "Spring");
+        if (collectMetrics)
+        {
+            RecordSolverDuration(springStarted, springAllocatedBefore, "Spring");
+            FlushMetrics(Mathf.Min(Time.deltaTime, 0.05f), "Spring");
+        }
     }
 
     /// <summary>
@@ -658,7 +682,8 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                     flesh.LastAppliedLocal = Vector3.zero;
                     flesh.PrevPosition = flesh.Position = flesh.Bone.position;
                 }
-                RecordMetric(offset);
+                if (_collectMetricsThisFrame)
+                    RecordMetric(offset);
             }
             catch (Exception)
             {
@@ -1076,7 +1101,8 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                     continue;
                 }
                 particle.LastAppliedLocal = particle.Bone.localPosition - particle.BaseLocal;
-                RecordMetric(localDelta);
+                if (_collectMetricsThisFrame)
+                    RecordMetric(localDelta);
                 if (logChain)
                 {
                     UnityEngine.Debug.Log("Flesh physics [" + particle.Bone.name + "]: chain applied=" +

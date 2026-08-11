@@ -8,12 +8,13 @@ using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 using KKAPI.Chara;
+using Studio;
 using UnityEngine;
 
 namespace ThighPhysicsController;
 
 [BepInDependency("marco.kkapi")]
-[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Soma Dynamics", "1.0.0.0")]
+[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Soma Dynamics", "1.0.1.0")]
 [DefaultExecutionOrder(-1000)]
 public class ThighPhysicsControllerPlugin : BaseUnityPlugin
 {
@@ -22,6 +23,7 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
     internal static ConfigEntry<bool> ForceEnable;
     internal static ConfigEntry<bool> RememberPerCharacter;
     internal static ConfigEntry<bool> AutoFixSpringDrift;
+    internal static ConfigEntry<bool> AutoResetPoseOnStudioChange;
     internal static ConfigEntry<bool> DebugCollectMetrics;
     internal static ConfigEntry<bool> DebugLogFlesh;
     internal static ConfigEntry<bool> DebugDumpSkeleton;
@@ -57,6 +59,7 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
     private static bool _loggedBustGravityGuard;
 
     private Harmony _harmony;
+    private Harmony _inputHarmony;
     private void Awake()
     {
         WindowKey = Config.Bind("General", "Window key",
@@ -72,6 +75,10 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         AutoFixSpringDrift = Config.Bind("General", "Auto fix spring drift", true,
             "Slowly ease spring-mode base drift back to the card pose so dancing " +
             "does not progressively deform the thighs.");
+        AutoResetPoseOnStudioChange = Config.Bind("General",
+            "Auto reset pose on Studio character or animation change", true,
+            "Restore Soma deformation before Studio changes a character or animation, " +
+            "then reset solver state after the new pose settles.");
         DebugCollectMetrics = Config.Bind("Debug", "Collect runtime metrics", false,
             "Log five-second FPC_METRIC windows with mean/RMS/peak offsets and safety reset counts.");
         DebugLogFlesh = Config.Bind("Debug", "Log flesh physics", false,
@@ -90,20 +97,13 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
 
         try
         {
-            _harmony = new Harmony("codex.koikatumanager.thighphysicscontroller.input");
-            PatchInputMethod("GetAxis", typeof(string));
-            PatchInputMethod("GetAxisRaw", typeof(string));
-            PatchInputMethod("GetMouseButton", typeof(int));
-            PatchInputMethod("GetMouseButtonDown", typeof(int));
-            PatchInputMethod("GetMouseButtonUp", typeof(int));
-            Logger.LogInfo("Input blocking patches installed.");
-
             // The BPC-compatible guards below use Harmony attributes. They must be
             // registered separately from the manually patched Unity input methods.
             // Without this call, BustSoft/BustGravity can overwrite FPC's values
             // after a body/collision refresh even though the patch classes compile.
+            _harmony = new Harmony("codex.koikatumanager.thighphysicscontroller.runtime");
             _harmony.PatchAll(Assembly.GetExecutingAssembly());
-            Logger.LogInfo("Native breast compatibility patches installed.");
+            Logger.LogInfo("Native breast and Studio pose-change patches installed.");
         }
         catch (Exception ex)
         {
@@ -125,8 +125,28 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
                 BindingFlags.Static | BindingFlags.NonPublic);
         if (prefix != null)
         {
-            _harmony.Patch(method, new HarmonyMethod(prefix));
+            _inputHarmony.Patch(method, new HarmonyMethod(prefix));
         }
+    }
+
+    private void SetInputPatches(bool enabled)
+    {
+        if (enabled)
+        {
+            if (_inputHarmony != null)
+                return;
+            _inputHarmony = new Harmony("codex.koikatumanager.thighphysicscontroller.input");
+            PatchInputMethod("GetAxis", typeof(string));
+            PatchInputMethod("GetAxisRaw", typeof(string));
+            PatchInputMethod("GetMouseButton", typeof(int));
+            PatchInputMethod("GetMouseButtonDown", typeof(int));
+            PatchInputMethod("GetMouseButtonUp", typeof(int));
+            return;
+        }
+        if (_inputHarmony == null)
+            return;
+        _inputHarmony.UnpatchSelf();
+        _inputHarmony = null;
     }
 
     private static bool AxisPrefix(string axisName, ref float __result)
@@ -168,25 +188,33 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         if (shortcut.IsDown())
         {
             _showWindow = !_showWindow;
+            SetInputPatches(_showWindow);
         }
-        Vector2 mouse = _hasGuiMouse
-            ? _lastGuiMouse
-            : new Vector2(Input.mousePosition.x, Screen.height - Input.mousePosition.y);
-        _mouseOverWindow = _showWindow && _windowRect.Contains(mouse);
-
-        _bypassInput = true;
-        bool anyMouse = Input.GetMouseButton(0) || Input.GetMouseButton(1) || Input.GetMouseButton(2);
-        _bypassInput = false;
-        if (!_inputCaptured && _mouseOverWindow && anyMouse)
+        if (_showWindow)
         {
-            _inputCaptured = true;
+            Vector2 mouse = _hasGuiMouse
+                ? _lastGuiMouse
+                : new Vector2(Input.mousePosition.x, Screen.height - Input.mousePosition.y);
+            _mouseOverWindow = _windowRect.Contains(mouse);
+
+            _bypassInput = true;
+            bool anyMouse = Input.GetMouseButton(0) || Input.GetMouseButton(1) ||
+                            Input.GetMouseButton(2);
+            _bypassInput = false;
+            if (!_inputCaptured && _mouseOverWindow && anyMouse)
+                _inputCaptured = true;
+            if (_inputCaptured && !anyMouse)
+                _inputCaptured = false;
+            _blockInput = _inputCaptured;
+            _blockScroll = _mouseOverWindow;
         }
-        if (_inputCaptured && !anyMouse)
+        else
         {
             _inputCaptured = false;
+            _mouseOverWindow = false;
+            _blockInput = false;
+            _blockScroll = false;
         }
-        _blockInput = _inputCaptured;
-        _blockScroll = _mouseOverWindow;
 
         for (int i = Controllers.Count - 1; i >= 0; i--)
         {
@@ -200,12 +228,65 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
 
     private void OnDestroy()
     {
+        SetInputPatches(false);
         if (_harmony != null)
         {
             _harmony.UnpatchSelf();
             _harmony = null;
         }
         _runtimeLog = null;
+    }
+
+    private static ThighController FindController(ChaControl chaControl)
+    {
+        if (chaControl == null)
+            return null;
+        for (int i = Controllers.Count - 1; i >= 0; i--)
+        {
+            ThighController controller = Controllers[i];
+            if (controller != null && controller.ChaControlMatches(chaControl))
+                return controller;
+        }
+        return null;
+    }
+
+    private static void PrepareForStudioPoseChange(OCIChar character)
+    {
+        if (character == null || !AutoResetPoseOnStudioChange.Value)
+            return;
+        ThighController controller = FindController(character.charInfo);
+        if (controller != null)
+            controller.PrepareForStudioPoseChange(2);
+    }
+
+    [HarmonyPatch(typeof(OCIChar), "LoadAnime")]
+    private static class StudioLoadAnimePatch
+    {
+        [HarmonyPrefix]
+        private static void Prefix(OCIChar __instance)
+        {
+            PrepareForStudioPoseChange(__instance);
+        }
+    }
+
+    [HarmonyPatch(typeof(OCIChar), "RestartAnime")]
+    private static class StudioRestartAnimePatch
+    {
+        [HarmonyPrefix]
+        private static void Prefix(OCIChar __instance)
+        {
+            PrepareForStudioPoseChange(__instance);
+        }
+    }
+
+    [HarmonyPatch(typeof(OCIChar), "ChangeChara")]
+    private static class StudioChangeCharaPatch
+    {
+        [HarmonyPrefix]
+        private static void Prefix(OCIChar __instance)
+        {
+            PrepareForStudioPoseChange(__instance);
+        }
     }
 
     private void OnGUI()

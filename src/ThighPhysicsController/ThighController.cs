@@ -30,6 +30,8 @@ public sealed class ThighController : CharaCustomFunctionController
 
     private int _pendingNativeApplyFrames;
 
+    private int _pendingPoseResetFrames;
+
     private bool _skeletonDumped;
 
     private bool _paramsLoaded;
@@ -207,6 +209,15 @@ public sealed class ThighController : CharaCustomFunctionController
     {
         if (ThighPhysicsControllerPlugin.AutoApply.Value)
         {
+            // Character, coordinate and body reloads can replace the skeleton while
+            // this controller survives. Restore the old deformation before releasing
+            // its references, then rebuild against the new pristine transforms.
+            RemoveFlesh();
+            if (_nativeBody != null)
+            {
+                _nativeBody.RestoreAll();
+                _nativeBody = null;
+            }
             // maintainState=true means the card data did not change (scene refresh,
             // coordinate/outfit change); keep the current settings in that case.
             if (!maintainState || !_paramsLoaded)
@@ -215,6 +226,7 @@ public sealed class ThighController : CharaCustomFunctionController
             }
             _skeletonDumped = false;
             Apply(resetPosition: true);
+            RequestPoseReset(2);
             RequestNativeReapply(30);
         }
     }
@@ -437,6 +449,39 @@ public sealed class ThighController : CharaCustomFunctionController
                 Apply(resetPosition: false);
             }
         }
+        if (_pendingPoseResetFrames > 0)
+        {
+            _pendingPoseResetFrames--;
+            if (_pendingPoseResetFrames == 0 && isActiveAndEnabled)
+                RestorePoseAndResetState();
+        }
+    }
+
+    internal void PrepareForStudioPoseChange(int settleFrames)
+    {
+        if (!isActiveAndEnabled)
+            return;
+        // Clear the outgoing action's deformation before Studio writes the incoming
+        // pose, then reset once more after the new Animator state has settled.
+        RestorePoseAndResetState();
+        RequestPoseReset(settleFrames);
+        RequestNativeReapply(settleFrames + 1);
+    }
+
+    private void RequestPoseReset(int delayFrames)
+    {
+        _pendingPoseResetFrames = Math.Max(_pendingPoseResetFrames,
+            Math.Max(1, delayFrames));
+    }
+
+    private void RestorePoseAndResetState()
+    {
+        for (int i = 0; i < _flesh.Count; i++)
+        {
+            ThighFleshJiggle jiggle = _flesh[i];
+            if (jiggle != null)
+                jiggle.RestorePoseAndResetState();
+        }
     }
 
     internal void RequestNativeReapply(int delayFrames)
@@ -474,14 +519,7 @@ public sealed class ThighController : CharaCustomFunctionController
 
     internal void ClearDeformation()
     {
-        for (int i = 0; i < _flesh.Count; i++)
-        {
-            ThighFleshJiggle jiggle = _flesh[i];
-            if (jiggle != null)
-            {
-                jiggle.ClearDeformation();
-            }
-        }
+        RestorePoseAndResetState();
         _pendingApplyFrames = 2;
     }
 
