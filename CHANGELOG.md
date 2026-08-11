@@ -1,5 +1,12 @@
 # 更新日志（CHANGELOG）
 
+## 1.0.2.2（2026-08-11）
+
+- 修复 Chain 在 Timeline 暂停后仍缓慢变形：每帧求解前先剥离 Soma 上一帧写入，在未形变
+  骨架上计算整条链，再只叠加一次当前帧结果，切断父骨 RC/位移进入子骨静止基准的反馈。
+- 检测运行时 Spring → Chain 模式切换，等待当前姿势稳定并重建 Chain；不再复用上次 Chain
+  的粒子和旋转状态。Chain → Spring 时先撤销 Chain 自身形变，再初始化 Spring 基准。
+
 ## 1.0.2.1（2026-08-11）
 
 - 直接订阅 KKAPI 的 Studio 场景 `Load/Import/Clear` 完成事件，Timeline 场景载入不再依赖

@@ -2,7 +2,7 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
 
-    [string]$Version = '1.0.2.1',
+    [string]$Version = '1.0.2.2',
 
     [string]$GameRoot = '',
 

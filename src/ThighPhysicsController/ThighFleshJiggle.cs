@@ -39,6 +39,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
     private int _chainPoseSettleTimeoutFrames;
     private int _chainPoseStableFrames;
     private int _chainPoseSettleElapsedFrames;
+    private bool _lastGamePhysics;
     private FleshPartId _partId = FleshPartId.Thigh;
     private int _distalIndex = 3;
 
@@ -66,6 +67,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         }
         ChaControlRef = control;
         ParamsRef = param;
+        _lastGamePhysics = param != null && param.GamePhysics;
         _bones.Clear();
         for (int c = 0; c < def.Chains.Length; c++)
         {
@@ -246,6 +248,22 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         }
 
         RemoveOwnedChainDeformation();
+        _chainPoseSettleActive = true;
+        _chainPoseSettleMinFrames = Math.Max(2, settleFrames);
+        _chainPoseSettleTimeoutFrames = Math.Max(12, settleFrames + 8);
+        _chainPoseStableFrames = 0;
+        _chainPoseSettleElapsedFrames = 0;
+        CapturePoseSample();
+        ResetMetricWindow();
+        ResetPerformanceWindow();
+        _metricWarmupRemaining = 2f;
+    }
+
+    private void BeginChainModeCapture(int settleFrames)
+    {
+        // A mutable ThighParams instance can switch modes without ApplyFlesh seeing a
+        // newly enabled component. Do not reuse particles from the last time Chain was
+        // active; sample the current Spring/Timeline pose and rebuild from it.
         _chainPoseSettleActive = true;
         _chainPoseSettleMinFrames = Math.Max(2, settleFrames);
         _chainPoseSettleTimeoutFrames = Math.Max(12, settleFrames + 8);
@@ -586,6 +604,20 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         if (UpdateExternalPoseSettle())
         {
             return;
+        }
+        if (ParamsRef.GamePhysics != _lastGamePhysics)
+        {
+            _lastGamePhysics = ParamsRef.GamePhysics;
+            if (_lastGamePhysics)
+            {
+                BeginChainModeCapture(2);
+            }
+            else
+            {
+                _chainPoseSettleActive = false;
+                RemoveOwnedChainDeformation();
+                ResetState();
+            }
         }
         if (ParamsRef.GamePhysics)
         {
@@ -998,7 +1030,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
             // Yield this frame and reset the whole chain in-place. If Timeline keeps
             // keying the chain, Timeline owns it; Chain physics resumes automatically
             // as soon as those direct writes stop.
-            if (HasExternalChainWrite(chain))
+            if (PrepareCleanChainBaseFrame(chain))
             {
                 ReanchorWholeChain(chain);
                 continue;
@@ -1317,8 +1349,9 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         chain.AnchorInputSampleCount = 0;
     }
 
-    private static bool HasExternalChainWrite(SideChain chain)
+    private static bool PrepareCleanChainBaseFrame(SideChain chain)
     {
+        bool externalWrite = false;
         for (int i = 0; i < chain.Particles.Count; i++)
         {
             ChainParticle particle = chain.Particles[i];
@@ -1329,16 +1362,31 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
             Vector3 expectedLocal = particle.BaseLocal + particle.LastAppliedLocal;
             if ((particle.Bone.localPosition - expectedLocal).sqrMagnitude > 0.000001f)
             {
-                return true;
+                particle.BaseLocal = particle.Bone.localPosition;
+                externalWrite = true;
+            }
+            else
+            {
+                // Remove Soma's previous local offset before evaluating any child.
+                // Otherwise a deformed parent shifts/rotates the child's world base
+                // and the chain slowly feeds its own output back into its rest pose.
+                particle.Bone.localPosition = particle.BaseLocal;
             }
             Quaternion expectedRot = particle.BaseRotLocal * particle.LastAppliedRotLocal;
             if (Quaternion.Angle(particle.Bone.localRotation, expectedRot) >
                 ExternalRotationThreshold)
             {
-                return true;
+                particle.BaseRotLocal = particle.Bone.localRotation;
+                externalWrite = true;
             }
+            else
+            {
+                particle.Bone.localRotation = particle.BaseRotLocal;
+            }
+            particle.LastAppliedLocal = Vector3.zero;
+            particle.LastAppliedRotLocal = Quaternion.identity;
         }
-        return false;
+        return externalWrite;
     }
 
     private void ReanchorWholeChain(SideChain chain)
