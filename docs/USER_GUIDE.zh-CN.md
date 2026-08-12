@@ -74,7 +74,7 @@ DLL。如果这些文件已经是 `.disabled`，无需继续处理。
 
 ### 推荐：二合一整合包
 
-1. 下载 `SomaDynamics_1.0.0.0-with-MMD-Stabilizer-v1.1.0.zip`。
+1. 下载 `SomaDynamics_1.0.2.7-with-MMD-Stabilizer-v1.2.1.zip`。
 2. 打开压缩包，确认最外层直接包含 `BepInEx` 文件夹。
 3. 将 `BepInEx` 合并到游戏根目录，也就是包含 `Koikatu.exe` 和
    `CharaStudio.exe` 的目录。
@@ -92,8 +92,8 @@ Soma Dynamics。
 
 ### 独立安装
 
-不使用 MMD 时，只安装 `SomaDynamics_1.0.0.0.zip` 即可。只需要修复 MMD 头发或裙摆时，
-也可以单独安装 `MmdDynamicBoneStabilizer-v1.1.0.zip`。
+不使用 MMD 时，只安装 `SomaDynamics_1.0.2.7.zip` 即可。只需要修复 MMD 头发或裙摆时，
+也可以单独安装 `MmdDynamicBoneStabilizer-v1.2.1.zip`。
 
 ## 5. 第一次启动
 
@@ -107,8 +107,8 @@ Soma Dynamics。
 启动日志位于 `BepInEx/LogOutput.log`。正常加载时可搜索：
 
 ```text
-Loading [Soma Dynamics 1.0.0.0]
-Loading [MMD DynamicBone Stabilizer 1.1.0]
+Loading [Soma Dynamics 1.0.2.7]
+Loading [MMD DynamicBone Stabilizer 1.2.1]
 MMD DynamicBone stabilization active
 ```
 
@@ -154,21 +154,33 @@ Soma Dynamics 会将它们换算到统一的距离模型。需要增强舞蹈效
 模式是按部位保存的，不是全身锁定。胸部和臀部始终使用游戏原生 DynamicBone 碰撞链，
 不会显示实验性 Spring。
 
+面板顶部的 `播放 Timeline 时 Chain 临时切换为弹簧` 默认关闭。仅当某个特殊场景在
+Timeline 开始播放后出现大腿、手臂或腹部扭曲时开启：播放期间 Chain 部位会临时运行
+Spring，暂停或停止后自动恢复原 Chain。此开关是全局运行兼容选项，不会改写角色卡或
+XML 中保存的模式；普通场景无需开启。
+
 ## 9. 保存、复位和高级参数
 
 - 参数实时生效，并随角色卡保存。
 - XML 导出会保存五个部位、模式和逐骨高级参数，适合分享完整方案。
 - `恢复推荐基线 Reset` 只复位当前部位。
 - `恢复姿态 Restore pose` 只清除当前形变和速度，不改参数。
+- 从 1.0.2.4 起，Studio/Timeline 换角色、换服装、切换或重播动作时只撤销 Soma 自身
+  形变；Chain 会让出载入期并在当前姿势连续稳定两帧后采纳新基准（最多等待 12 帧），
+  不再把角色强制拉回角色卡初始姿势。Timeline 持续写入的连续关键帧会成为 Chain 的实时
+  基准，Soma 继续叠加物理；形体骨局部跳变或角色整体位移超过 8 cm、旋转超过 35° 时
+  才清零整链一帧，避免 Timeline 瞬移把小腿和手臂拉坏。
 
 高级页面向需要逐骨调节的用户。日常使用通常只需要三档预设和三个基础参数。若必须调整
 Amp、轴向、Damping 或 Inert，建议一次只改一个值，并保留 XML 备份。
 
 ## 10. MMD 防抖插件的工作范围
 
-MMD DynamicBone Stabilizer 会在 MMD 写完角色姿势后再计算头发、衣服和饰品物理，并在
-切歌或拖动进度时清除陈旧速度。它还会识别 Unity Cloth，以及裙骨使用的 KKPE 球形
-碰撞体；MMD 停止后会恢复临时参数。
+MMD DynamicBone Stabilizer 会持续检测角色根节点、腰部和头部运动；即使没有播放 MMD，
+普通 Studio 动作、拖动角色或其他插件驱动的运动也会触发稳定。播放 MMD 时，它还会在
+MMD 写完角色姿势后再计算头发、衣服和饰品物理，并在切歌或拖动进度时清除陈旧速度。
+它也会识别 Unity Cloth，以及裙骨使用的 KKPE 球形碰撞体；运动停止后会保留低开销的
+稳定状态，角色卸载或插件关闭时恢复临时参数。
 
 默认配置已经按零调参设计。配置文件首次启动后生成在：
 

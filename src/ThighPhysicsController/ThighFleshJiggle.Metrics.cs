@@ -127,13 +127,13 @@ public sealed partial class ThighFleshJiggle
 
     private void RecordMetric(Vector3 value)
     {
-        float magnitude = value.magnitude;
-        if (!ThighPhysicsControllerPlugin.DebugCollectMetrics.Value ||
-            _metricWarmupRemaining > 0f ||
-            IsNan(value) || !FleshValue.IsFinite(magnitude))
+        if (_metricWarmupRemaining > 0f || IsNan(value))
         {
             return;
         }
+        float magnitude = value.magnitude;
+        if (!FleshValue.IsFinite(magnitude))
+            return;
         _metricSamples++;
         _metricSum += magnitude;
         _metricSumSquares += magnitude * magnitude;

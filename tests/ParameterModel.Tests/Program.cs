@@ -565,6 +565,32 @@ internal static class Program
         Near(0.011f, guarded.x, "vector median guards translation spike");
         Near(-0.011f, guarded.y, "vector median guards angular spike");
         Near(0.021f, guarded.z, "vector median preserves smooth component");
+        True(!FleshSolverMath.IsChainAnchorTeleport(0.079f, 34.9f),
+            "ordinary Timeline motion remains a physics input");
+        True(FleshSolverMath.IsChainAnchorTeleport(0.081f, 0f),
+            "whole-character Timeline translation is treated as a teleport");
+        True(FleshSolverMath.IsChainAnchorTeleport(0f, 35.1f),
+            "whole-character Timeline rotation is treated as a teleport");
+        True(FleshSolverMath.IsChainAnchorTeleport(float.NaN, 0f),
+            "invalid anchor motion fails safe instead of entering physics");
+        True(!FleshSolverMath.ShouldYieldConstraintRotation(false, false),
+            "idle Timeline without constraints keeps Chain rotation");
+        True(!FleshSolverMath.ShouldYieldConstraintRotation(true, false),
+            "ordinary Timeline playback keeps Chain rotation");
+        True(!FleshSolverMath.ShouldYieldConstraintRotation(false, true),
+            "an idle character constraint keeps Chain rotation");
+        True(FleshSolverMath.ShouldYieldConstraintRotation(true, true),
+            "active Timeline character constraint yields Chain rotation only");
+        True(!FleshSolverMath.ShouldUseTimelineSpringFallback(false, true, true),
+            "disabled Timeline fallback keeps the selected Chain solver");
+        True(!FleshSolverMath.ShouldUseTimelineSpringFallback(true, false, false),
+            "spring mode needs no Timeline fallback while idle");
+        True(!FleshSolverMath.ShouldUseTimelineSpringFallback(true, false, true),
+            "selected spring mode remains spring during Timeline playback");
+        True(!FleshSolverMath.ShouldUseTimelineSpringFallback(true, true, false),
+            "selected Chain mode remains Chain while Timeline is idle");
+        True(FleshSolverMath.ShouldUseTimelineSpringFallback(true, true, true),
+            "selected Chain mode uses safe spring physics during Timeline playback");
         Near(1f, FleshSolverMath.DanceResponseScale(1f, 0.8f, 0.35f),
             "dance response reference is one");
         Near(2f, FleshSolverMath.DanceResponseScale(2f, 0.8f, 0.35f),

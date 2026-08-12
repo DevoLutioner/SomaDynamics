@@ -207,6 +207,15 @@ public sealed class ThighController : CharaCustomFunctionController
     {
         if (ThighPhysicsControllerPlugin.AutoApply.Value)
         {
+            // Character, coordinate and body reloads can replace the skeleton while
+            // this controller survives. Restore the old deformation before releasing
+            // its references, then rebuild against the new pristine transforms.
+            RemoveFlesh();
+            if (_nativeBody != null)
+            {
+                _nativeBody.RestoreAll();
+                _nativeBody = null;
+            }
             // maintainState=true means the card data did not change (scene refresh,
             // coordinate/outfit change); keep the current settings in that case.
             if (!maintainState || !_paramsLoaded)
@@ -215,6 +224,7 @@ public sealed class ThighController : CharaCustomFunctionController
             }
             _skeletonDumped = false;
             Apply(resetPosition: true);
+            PrepareForStudioPoseChange(2);
             RequestNativeReapply(30);
         }
     }
@@ -439,6 +449,32 @@ public sealed class ThighController : CharaCustomFunctionController
         }
     }
 
+    internal void PrepareForStudioPoseChange(int settleFrames)
+    {
+        if (!isActiveAndEnabled)
+            return;
+        // Chain mode yields until the incoming Animator/Timeline pose is visible,
+        // then captures that pose as its new rest frame. Spring keeps its established
+        // reset path because it does not exhibit the Timeline twist.
+        for (int i = 0; i < _flesh.Count; i++)
+        {
+            ThighFleshJiggle jiggle = _flesh[i];
+            if (jiggle != null)
+                jiggle.PrepareForExternalPoseChange(settleFrames);
+        }
+        RequestNativeReapply(settleFrames + 1);
+    }
+
+    private void RestorePoseAndResetState()
+    {
+        for (int i = 0; i < _flesh.Count; i++)
+        {
+            ThighFleshJiggle jiggle = _flesh[i];
+            if (jiggle != null)
+                jiggle.RestorePoseAndResetState();
+        }
+    }
+
     internal void RequestNativeReapply(int delayFrames)
     {
         _pendingNativeApplyFrames = Math.Max(_pendingNativeApplyFrames,
@@ -474,14 +510,7 @@ public sealed class ThighController : CharaCustomFunctionController
 
     internal void ClearDeformation()
     {
-        for (int i = 0; i < _flesh.Count; i++)
-        {
-            ThighFleshJiggle jiggle = _flesh[i];
-            if (jiggle != null)
-            {
-                jiggle.ClearDeformation();
-            }
-        }
+        RestorePoseAndResetState();
         _pendingApplyFrames = 2;
     }
 
