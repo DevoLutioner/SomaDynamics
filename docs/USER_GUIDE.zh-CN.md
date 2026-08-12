@@ -74,7 +74,7 @@ DLL。如果这些文件已经是 `.disabled`，无需继续处理。
 
 ### 推荐：二合一整合包
 
-1. 下载 `SomaDynamics_1.0.2.4-with-MMD-Stabilizer-v1.2.1.zip`。
+1. 下载 `SomaDynamics_1.0.2.7-with-MMD-Stabilizer-v1.2.1.zip`。
 2. 打开压缩包，确认最外层直接包含 `BepInEx` 文件夹。
 3. 将 `BepInEx` 合并到游戏根目录，也就是包含 `Koikatu.exe` 和
    `CharaStudio.exe` 的目录。
@@ -92,7 +92,7 @@ Soma Dynamics。
 
 ### 独立安装
 
-不使用 MMD 时，只安装 `SomaDynamics_1.0.2.4.zip` 即可。只需要修复 MMD 头发或裙摆时，
+不使用 MMD 时，只安装 `SomaDynamics_1.0.2.7.zip` 即可。只需要修复 MMD 头发或裙摆时，
 也可以单独安装 `MmdDynamicBoneStabilizer-v1.2.1.zip`。
 
 ## 5. 第一次启动
@@ -107,7 +107,7 @@ Soma Dynamics。
 启动日志位于 `BepInEx/LogOutput.log`。正常加载时可搜索：
 
 ```text
-Loading [Soma Dynamics 1.0.2.4]
+Loading [Soma Dynamics 1.0.2.7]
 Loading [MMD DynamicBone Stabilizer 1.2.1]
 MMD DynamicBone stabilization active
 ```
@@ -153,6 +153,11 @@ Soma Dynamics 会将它们换算到统一的距离模型。需要增强舞蹈效
 
 模式是按部位保存的，不是全身锁定。胸部和臀部始终使用游戏原生 DynamicBone 碰撞链，
 不会显示实验性 Spring。
+
+面板顶部的 `播放 Timeline 时 Chain 临时切换为弹簧` 默认关闭。仅当某个特殊场景在
+Timeline 开始播放后出现大腿、手臂或腹部扭曲时开启：播放期间 Chain 部位会临时运行
+Spring，暂停或停止后自动恢复原 Chain。此开关是全局运行兼容选项，不会改写角色卡或
+XML 中保存的模式；普通场景无需开启。
 
 ## 9. 保存、复位和高级参数
 

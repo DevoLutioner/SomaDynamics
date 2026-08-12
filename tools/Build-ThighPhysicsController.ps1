@@ -2,7 +2,7 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
 
-    [string]$Version = '1.0.2.4',
+    [string]$Version = '1.0.2.7',
 
     [string]$GameRoot = '',
 
@@ -123,7 +123,8 @@ $dllBytes = [IO.File]::ReadAllBytes((Join-Path $pluginDir 'ThighPhysicsControlle
 foreach ($marker in @($Version, 'Soma Dynamics', 'Global controls',
         'Native DynamicBone', 'Advanced', 'Low', 'Medium', 'High', 'MotionGain', 'EnsureXml',
         'RotCalc', 'Remember per-character settings', 'Auto fix spring drift', 'Breast', 'Butt',
-        'FPC_NATIVE_GUARD', 'FPC_PRESET_APPLY', 'SOMA_POSE_REBASE', 'SOMA_SCENE_REBASE')) {
+        'FPC_NATIVE_GUARD', 'FPC_PRESET_APPLY', 'SOMA_POSE_REBASE', 'SOMA_SCENE_REBASE',
+        'Timeline playback uses Spring fallback', 'SOMA_TIMELINE_SAFE')) {
     if (-not (Test-DllMarker $dllBytes $marker)) {
         throw "Built DLL is missing expected feature marker: $marker"
     }

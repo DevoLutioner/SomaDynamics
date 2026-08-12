@@ -15,7 +15,7 @@ using UnityEngine;
 namespace ThighPhysicsController;
 
 [BepInDependency("marco.kkapi")]
-[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Soma Dynamics", "1.0.2.4")]
+[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Soma Dynamics", "1.0.2.7")]
 [DefaultExecutionOrder(-1000)]
 public class ThighPhysicsControllerPlugin : BaseUnityPlugin
 {
@@ -25,6 +25,7 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
     internal static ConfigEntry<bool> RememberPerCharacter;
     internal static ConfigEntry<bool> AutoFixSpringDrift;
     internal static ConfigEntry<bool> AutoResetPoseOnStudioChange;
+    internal static ConfigEntry<bool> TimelinePlaybackSpringFallback;
     internal static ConfigEntry<bool> DebugCollectMetrics;
     internal static ConfigEntry<bool> DebugLogFlesh;
     internal static ConfigEntry<bool> DebugDumpSkeleton;
@@ -80,6 +81,10 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
             "Auto reset pose on Studio character or animation change", true,
             "Remove Soma's own deformation before Studio changes a character or animation, " +
             "then adopt the settled Timeline/Animator pose as the Chain rest frame.");
+        TimelinePlaybackSpringFallback = Config.Bind("General",
+            "Timeline playback uses Spring fallback", false,
+            "When enabled, Chain parts temporarily use the safer Spring solver only while " +
+            "Timeline is playing. The saved solver selection is restored on pause or stop.");
         DebugCollectMetrics = Config.Bind("Debug", "Collect runtime metrics", false,
             "Log five-second FPC_METRIC windows with mean/RMS/peak offsets and safety reset counts.");
         DebugLogFlesh = Config.Bind("Debug", "Log flesh physics", false,
@@ -94,7 +99,9 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         CharacterApi.RegisterExtraBehaviour<ThighController>("codex.koikatumanager.thighphysicscontroller");
         _runtimeLog = Logger;
         Logger.LogInfo("Soma Dynamics initialized (autoApply=" + AutoApply.Value +
-                       ", forceEnable=" + ForceEnable.Value + ", presets=" + PresetDirectory.Value + ").");
+                       ", forceEnable=" + ForceEnable.Value +
+                       ", timelineSpringFallback=" + TimelinePlaybackSpringFallback.Value +
+                       ", presets=" + PresetDirectory.Value + ").");
 
         try
         {
@@ -638,6 +645,30 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         softness /= 5f;
         motion /= 5f;
 
+        GUILayout.Label("Timeline 兼容  Timeline compatibility");
+        bool oldTimelineFallback = TimelinePlaybackSpringFallback.Value;
+        bool newTimelineFallback = GUILayout.Toggle(oldTimelineFallback,
+            " 播放 Timeline 时 Chain 临时切换为弹簧（防四肢扭曲）");
+        if (newTimelineFallback != oldTimelineFallback)
+        {
+            TimelinePlaybackSpringFallback.Value = newTimelineFallback;
+            Logger.LogInfo("SOMA_TIMELINE_SAFE option=" +
+                           (newTimelineFallback ? "enabled" : "disabled"));
+        }
+        if (newTimelineFallback)
+        {
+            GUILayout.Label(TimelineConstraintBridge.IsTimelinePlaying()
+                ? "状态：Timeline 播放中，Chain 部位正在临时使用 Spring；停止后自动恢复。"
+                : "状态：待命；仅在 Timeline 播放期间生效，不改角色卡模式。",
+                GUILayout.Width(520f));
+        }
+        else
+        {
+            GUILayout.Label("默认关闭；只在遇到播放即扭曲的特殊场景时开启。",
+                GUILayout.Width(520f));
+        }
+
+        GUILayout.Space(6f);
         GUILayout.Label("全身控制  Global controls");
         GUILayout.Label("统一调整五个部位；部位页用于局部修正。0–1 常用，1–2 增强。",
             GUILayout.Width(520f));

@@ -31,6 +31,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
     private float _chainTime;
     private float _chainLogTime;
     private float _chainReanchorLogTime;
+    private bool _constraintSafeRotationsLastFrame;
     private bool _metricsEnabledLastFrame;
     private bool _collectMetricsThisFrame;
     private float _retryTimer;
@@ -40,6 +41,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
     private int _chainPoseStableFrames;
     private int _chainPoseSettleElapsedFrames;
     private bool _lastGamePhysics;
+    private bool _timelineSpringFallbackLastFrame;
     private FleshPartId _partId = FleshPartId.Thigh;
     private int _distalIndex = 3;
 
@@ -601,6 +603,31 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
             ResetPerformanceWindow();
         }
         _metricsEnabledLastFrame = collectMetrics;
+        bool timelineSpringFallback = FleshSolverMath.ShouldUseTimelineSpringFallback(
+            ThighPhysicsControllerPlugin.TimelinePlaybackSpringFallback.Value,
+            ParamsRef.GamePhysics, TimelineConstraintBridge.IsTimelinePlaying());
+        if (timelineSpringFallback != _timelineSpringFallbackLastFrame)
+        {
+            _timelineSpringFallbackLastFrame = timelineSpringFallback;
+            if (timelineSpringFallback)
+            {
+                // Timeline authors can drive limbs through GuideObject, IK, NodesConstraints
+                // or custom interpolables. Their transforms are not reliably descendants
+                // of ChaControl, so do not run the hierarchy-sensitive Chain solver while
+                // Timeline owns the pose. Spring is independent and remains physically live.
+                RemoveOwnedChainDeformation();
+                _chainPoseSettleActive = false;
+                ResetState();
+            }
+            else if (ParamsRef.GamePhysics)
+            {
+                BeginChainModeCapture(2);
+            }
+            UnityEngine.Debug.Log("SOMA_TIMELINE_SAFE part=" + PartId +
+                " action=" + (timelineSpringFallback
+                    ? "chain_to_spring"
+                    : "spring_to_chain"));
+        }
         if (UpdateExternalPoseSettle())
         {
             return;
@@ -619,7 +646,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                 ResetState();
             }
         }
-        if (ParamsRef.GamePhysics)
+        if (ParamsRef.GamePhysics && !timelineSpringFallback)
         {
             long allocatedBefore = collectMetrics ? ReadAllocatedBytes() : -1L;
             long started = collectMetrics ? Stopwatch.GetTimestamp() : 0L;
@@ -636,8 +663,9 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         UpdateSpringPhysics();
         if (collectMetrics)
         {
-            RecordSolverDuration(springStarted, springAllocatedBefore, "Spring");
-            FlushMetrics(Mathf.Min(Time.deltaTime, 0.05f), "Spring");
+            string springMode = timelineSpringFallback ? "Spring(TimelineSafe)" : "Spring";
+            RecordSolverDuration(springStarted, springAllocatedBefore, springMode);
+            FlushMetrics(Mathf.Min(Time.deltaTime, 0.05f), springMode);
         }
     }
 
@@ -1009,6 +1037,16 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         Vector3 gravity = new Vector3(0f, -chainParams.Gravity * 0.016f, 0f);
         bool logChain = ThighPhysicsControllerPlugin.DebugLogFlesh.Value &&
                         _chainTime - _chainLogTime >= 2f;
+        bool yieldConstraintRotations =
+            TimelineConstraintBridge.ShouldYieldChainRotations(character);
+        if (yieldConstraintRotations != _constraintSafeRotationsLastFrame)
+        {
+            _constraintSafeRotationsLastFrame = yieldConstraintRotations;
+            UnityEngine.Debug.Log("SOMA_CHAIN_CONSTRAINT_SAFE part=" + PartId +
+                " action=" + (yieldConstraintRotations
+                    ? "yield_rotation_keep_position"
+                    : "resume_rotation"));
+        }
 
         for (int i = 0; i < _chains.Count; i++)
         {
@@ -1032,6 +1070,10 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
             {
                 ReanchorWholeChain(chain);
                 continue;
+            }
+            if (yieldConstraintRotations)
+            {
+                ClearChainRotationOutput(chain);
             }
             Vector3 anchorPos = chain.Anchor.position;
             Quaternion anchorRot = chain.Anchor.rotation;
@@ -1212,7 +1254,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                     continue;
                 }
                 string rcRotText = "";
-                if (prev.BoneIndex >= 0 &&
+                if (!yieldConstraintRotations && prev.BoneIndex >= 0 &&
                     ParamsRef.ChainBones.GetRotCalc(prev.BoneIndex) &&
                     ParamsRef.ChainBones.GetAmp(prev.BoneIndex) > 0.0001f)
                 {
@@ -1283,7 +1325,10 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                 Vector3 delta = particle.Position - worldBase;
                 // Rot support in chain mode: non-RC bones get a smooth tilt driven by
                 // the particle offset (like spring mode's rotation), default 0.25.
-                if (!ParamsRef.ChainBones.GetRotCalc(particle.BoneIndex))
+                // NodesConstraints already owns the limb rotation on a constraint-safe
+                // frame. Keep Chain's bounded position response without a second write.
+                if (!yieldConstraintRotations &&
+                    !ParamsRef.ChainBones.GetRotCalc(particle.BoneIndex))
                 {
                     float rotAmp = ParamsRef.ChainBones.GetRotAmp(particle.BoneIndex);
                     if (rotAmp > 0.0001f)
@@ -1310,7 +1355,8 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                 Vector3 localDelta = character.InverseTransformDirection(delta);
                 // When this bone uses RC, prefer rotation over translation so the leg
                 // swings like flesh instead of squirming (wriggling) along the chain.
-                float posScale = ParamsRef.ChainBones.GetRotCalc(particle.BoneIndex) ? 0.5f : 1f;
+                float posScale = ParamsRef.ChainBones.GetRotCalc(particle.BoneIndex) &&
+                                 !yieldConstraintRotations ? 0.5f : 1f;
                 localDelta = Vector3.Scale(localDelta, axisMask) * amp * posScale;
                 float distal = particle.BoneIndex == _distalIndex ? 0.6f : 1f;
                 float writeLimit = (0.02f + 0.01f * amp) * distal * targetRangeScale;
@@ -1368,6 +1414,22 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         chain.PreviousAnchorMoveAt60 = Vector3.zero;
         chain.PreviousAnchorAngularAt60 = Vector3.zero;
         chain.AnchorInputSampleCount = 0;
+    }
+
+    private static void ClearChainRotationOutput(SideChain chain)
+    {
+        for (int i = 0; i < chain.Particles.Count; i++)
+        {
+            ChainParticle particle = chain.Particles[i];
+            if (particle == null || particle.Bone == null)
+            {
+                continue;
+            }
+            particle.Bone.localRotation = particle.BaseRotLocal;
+            particle.LastAppliedRotLocal = Quaternion.identity;
+            particle.RotSmoothed = Vector3.zero;
+            particle.RotTarget = Vector3.zero;
+        }
     }
 
     private static bool PrepareCleanChainBaseFrame(SideChain chain)

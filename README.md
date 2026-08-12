@@ -1,4 +1,4 @@
-# Soma Dynamics｜形体动力学控制器 v1.0.2.4
+# Soma Dynamics｜形体动力学控制器 v1.0.2.7
 
 Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管理大腿、手臂、
 腹部、胸部和臀部。界面以少量感知参数为主，同时保留逐骨高级调节。
@@ -6,7 +6,7 @@ Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管�
 内部 GUID、DLL、安装目录和角色卡数据键继续沿用 `ThighPhysicsController`，以兼容旧卡、
 配置和现有安装。
 
-## 1.0 至 1.0.2.4 修复总览
+## 1.0 至 1.0.2.7 修复总览
 
 | 版本 | 用户可见修复 |
 | --- | --- |
@@ -17,6 +17,7 @@ Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管�
 | 1.0.2.2 | 每帧剥离 Soma 自己上一帧的 Chain 输出，切断父子骨反馈；修复暂停或静止时大腿慢慢变形。 |
 | 1.0.2.3 | Timeline 连续关键帧成为实时 Chain 基准，恢复播放时的弹性与惯性；不再用“关闭物理”回避形变。 |
 | 1.0.2.4 | 检测角色整体的世界空间瞬移/大旋转并整链安全重锚；修复 Timeline 大位移时小腿和手臂严重拉伸变形。 |
+| 1.0.2.7 | 面板新增按需 Timeline 安全弹簧开关；播放时 Chain 临时使用 Spring，暂停/停止自动恢复，不改角色卡模式。 |
 
 完整逐项记录见 [`CHANGELOG.md`](CHANGELOG.md)。
 
@@ -66,6 +67,8 @@ Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管�
 ### 部位控制
 
 - 大腿、手臂、腹部：独立启用，使用明确的 Spring / Chain 动作按钮。
+- Timeline 特殊场景若一播放就扭曲，可在面板顶部开启兼容开关；它只在播放期间临时切换，
+  正常场景建议保持默认关闭。
 - 胸部、臀部：`启用参数接管` 只决定是否由插件覆盖原生链参数；关闭后恢复游戏原值，
   不会关闭游戏本身的碰撞物理。
 - 基础页只显示三项目标参数和当前部位复位。
@@ -119,7 +122,7 @@ BPC 开发术语。完成迁移后，不需要同时启用以下旧插件：
 
 ## 兼容与数据版本
 
-- 插件版本：`1.0.2.4`
+- 插件版本：`1.0.2.7`
 - 卡片数据版本：`61`
 - XML 版本：`4`
 - GUID：`codex.koikatumanager.thighphysicscontroller`
@@ -137,6 +140,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-ThighPhysicsCo
 
 正式构建会运行参数模型测试、胸臀实时应用安全契约、品牌/UI 字符串烟测，并生成：
 
-- `packaging\SomaDynamics_1.0.2.4\`
-- `packaging\SomaDynamics_1.0.2.4.zip`
-- `packaging\SomaDynamics_1.0.2.4.zip.sha256`
+- `packaging\SomaDynamics_1.0.2.7\`
+- `packaging\SomaDynamics_1.0.2.7.zip`
+- `packaging\SomaDynamics_1.0.2.7.zip.sha256`

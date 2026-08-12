@@ -66,6 +66,22 @@ internal static class FleshSolverMath
                Math.Abs(angleDegrees) > ChainTeleportAngle;
     }
 
+    /// <summary>
+    /// Chain rotation must yield only for the intersection of active Timeline
+    /// playback and a live character constraint. Either condition alone is safe.
+    /// </summary>
+    public static bool ShouldYieldConstraintRotation(bool timelinePlaying,
+        bool activeCharacterConstraint)
+    {
+        return timelinePlaying && activeCharacterConstraint;
+    }
+
+    public static bool ShouldUseTimelineSpringFallback(bool fallbackEnabled,
+        bool chainSelected, bool timelinePlaying)
+    {
+        return fallbackEnabled && chainSelected && timelinePlaying;
+    }
+
     public static float DanceResponseScale(float gain, float weight, float inert)
     {
         gain = FleshValue.Clamp(gain, 0f, FleshParameterRanges.MotionGainMax, 1f);
