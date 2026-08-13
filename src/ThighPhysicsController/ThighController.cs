@@ -278,18 +278,16 @@ public sealed class ThighController : CharaCustomFunctionController
             BellyParams = profile.Belly;
             BreastProfile = profile.Breast;
             ButtParams = profile.Butt;
+            ApplyDefaultPartEnables(hadCardData: true);
         }
         else
         {
             PluginData extended = GetExtendedData();
-            if (extended != null && extended.data != null && extended.data.Count > 0)
+            bool hadCardData = extended != null && extended.data != null && extended.data.Count > 0;
+            Params = ThighParams.CreateDefault();
+            if (hadCardData)
             {
-                Params = ThighParams.CreateDefault();
                 Params.ReadData(extended);
-            }
-            else
-            {
-                Params = ThighParams.CreateDefault();
             }
             ArmParams = ThighParams.CreatePartDefaults(FleshPartId.Arm);
             BellyParams = ThighParams.CreatePartDefaults(FleshPartId.Belly);
@@ -307,6 +305,12 @@ public sealed class ThighController : CharaCustomFunctionController
                 NativeBustProfile.Read(extended.data, "breast_", BreastProfile, version);
                 NativeBodyParams.ReadPart(extended.data, "butt_", ButtParams, version);
             }
+            // 默认预设只对没有卡数据的角色自动应用,已有卡数据的角色保持卡片值。
+            if (!hadCardData)
+            {
+                ApplyDefaultPresetIfConfigured();
+            }
+            ApplyDefaultPartEnables(hadCardData);
             if (useMemory)
             {
                 ThighPhysicsControllerPlugin.MemoryProfiles[key] = new FleshProfile
@@ -328,6 +332,55 @@ public sealed class ThighController : CharaCustomFunctionController
             ButtParams.Enabled = true;
         }
         _paramsLoaded = true;
+    }
+
+    private void ApplyDefaultPresetIfConfigured()
+    {
+        string presetName = ThighPhysicsControllerPlugin.DefaultPreset.Value;
+        if (string.IsNullOrEmpty(presetName))
+        {
+            return;
+        }
+        presetName = presetName.Trim();
+        if (presetName.Length == 0)
+        {
+            return;
+        }
+        // The default preset is a bare file name; reject anything path-shaped.
+        if (presetName.IndexOfAny(new[] { '\\', '/', ':' }) >= 0)
+        {
+            Debug.LogWarning("FPC_PRESET_APPLY default preset name ignored " +
+                             "(contains path characters): " + presetName);
+            return;
+        }
+        string path = Path.Combine(ThighPhysicsControllerPlugin.PresetDirectory.Value, presetName);
+        if (!File.Exists(path))
+        {
+            Debug.LogWarning("FPC_PRESET_APPLY default preset not found: " + path);
+            return;
+        }
+        try
+        {
+            LoadPreset(path);
+            Debug.Log("FPC_PRESET_APPLY default preset applied: " + presetName);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning("FPC_PRESET_APPLY default preset failed: " + ex.Message);
+        }
+    }
+
+    private void ApplyDefaultPartEnables(bool hadCardData)
+    {
+        if (hadCardData && !ThighPhysicsControllerPlugin.ApplyDefaultsToAllCharacters.Value)
+        {
+            return;
+        }
+        Params.Enabled = ThighPhysicsControllerPlugin.DefaultThighEnabled.Value;
+        ArmParams.Enabled = ThighPhysicsControllerPlugin.DefaultArmEnabled.Value;
+        BellyParams.Enabled = ThighPhysicsControllerPlugin.DefaultBellyEnabled.Value;
+        BreastProfile.SetEnabledAll(ThighPhysicsControllerPlugin.DefaultBreastEnabled.Value);
+        ButtParams.Enabled = ThighPhysicsControllerPlugin.DefaultButtEnabled.Value;
     }
 
     private void RememberPart(FleshPartId part)

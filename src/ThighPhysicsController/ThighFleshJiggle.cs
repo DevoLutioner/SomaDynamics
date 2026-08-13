@@ -606,6 +606,13 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         bool timelineSpringFallback = FleshSolverMath.ShouldUseTimelineSpringFallback(
             ThighPhysicsControllerPlugin.TimelinePlaybackSpringFallback.Value,
             ParamsRef.GamePhysics, TimelineConstraintBridge.IsTimelinePlaying());
+        if (timelineSpringFallback && ThighPhysicsControllerPlugin.TimelineSpringFallbackAuto.Value)
+        {
+            // Auto mode: apply the fallback only to characters actually driven by
+            // Timeline (NodesConstraints). The bridge caches this per character/frame.
+            Transform characterRoot = ChaControlRef == null ? null : ChaControlRef.transform;
+            timelineSpringFallback = TimelineConstraintBridge.ShouldYieldChainRotations(characterRoot);
+        }
         if (timelineSpringFallback != _timelineSpringFallbackLastFrame)
         {
             _timelineSpringFallbackLastFrame = timelineSpringFallback;

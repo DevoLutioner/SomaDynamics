@@ -15,7 +15,7 @@ using UnityEngine;
 namespace ThighPhysicsController;
 
 [BepInDependency("marco.kkapi")]
-[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Soma Dynamics", "1.0.2.7")]
+[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Soma Dynamics", "1.0.3.0")]
 [DefaultExecutionOrder(-1000)]
 public class ThighPhysicsControllerPlugin : BaseUnityPlugin
 {
@@ -26,6 +26,15 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
     internal static ConfigEntry<bool> AutoFixSpringDrift;
     internal static ConfigEntry<bool> AutoResetPoseOnStudioChange;
     internal static ConfigEntry<bool> TimelinePlaybackSpringFallback;
+    internal static ConfigEntry<bool> TimelineSpringFallbackAuto;
+    internal static ConfigEntry<KeyboardShortcut> TimelineSpringFallbackKey;
+    internal static ConfigEntry<string> DefaultPreset;
+    internal static ConfigEntry<bool> DefaultThighEnabled;
+    internal static ConfigEntry<bool> DefaultArmEnabled;
+    internal static ConfigEntry<bool> DefaultBellyEnabled;
+    internal static ConfigEntry<bool> DefaultBreastEnabled;
+    internal static ConfigEntry<bool> DefaultButtEnabled;
+    internal static ConfigEntry<bool> ApplyDefaultsToAllCharacters;
     internal static ConfigEntry<bool> DebugCollectMetrics;
     internal static ConfigEntry<bool> DebugLogFlesh;
     internal static ConfigEntry<bool> DebugDumpSkeleton;
@@ -85,6 +94,31 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
             "Timeline playback uses Spring fallback", false,
             "When enabled, Chain parts temporarily use the safer Spring solver only while " +
             "Timeline is playing. The saved solver selection is restored on pause or stop.");
+        TimelineSpringFallbackAuto = Config.Bind("General",
+            "Timeline spring fallback auto detect", false,
+            "When the fallback is enabled, apply it only to characters actually driven by " +
+            "Timeline (NodesConstraints) instead of every character while Timeline plays.");
+        TimelineSpringFallbackKey = Config.Bind("General",
+            "Timeline spring fallback hotkey",
+            new KeyboardShortcut(),
+            "Toggle the Timeline spring fallback during play. Empty means no hotkey.");
+        DefaultPreset = Config.Bind("Presets", "Default preset", "",
+            "XML preset file name applied automatically to characters that have no saved " +
+            "Soma card data (empty = none). Set it from the profile panel.");
+        DefaultThighEnabled = Config.Bind("Defaults", "Default thigh enabled", true,
+            "Default enable state for the thigh part on newly loaded characters.");
+        DefaultArmEnabled = Config.Bind("Defaults", "Default arm enabled", true,
+            "Default enable state for the arm part on newly loaded characters.");
+        DefaultBellyEnabled = Config.Bind("Defaults", "Default belly enabled", true,
+            "Default enable state for the belly part on newly loaded characters.");
+        DefaultBreastEnabled = Config.Bind("Defaults", "Default breast enabled", true,
+            "Default enable state for the breast native chain on newly loaded characters.");
+        DefaultButtEnabled = Config.Bind("Defaults", "Default butt enabled", true,
+            "Default enable state for the butt native chain on newly loaded characters.");
+        ApplyDefaultsToAllCharacters = Config.Bind("Defaults",
+            "Apply defaults to all characters", false,
+            "When enabled, the default part switches above apply to every loaded character " +
+            "and override card-saved enable states.");
         DebugCollectMetrics = Config.Bind("Debug", "Collect runtime metrics", false,
             "Log five-second FPC_METRIC windows with mean/RMS/peak offsets and safety reset counts.");
         DebugLogFlesh = Config.Bind("Debug", "Log flesh physics", false,
@@ -101,6 +135,9 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         Logger.LogInfo("Soma Dynamics initialized (autoApply=" + AutoApply.Value +
                        ", forceEnable=" + ForceEnable.Value +
                        ", timelineSpringFallback=" + TimelinePlaybackSpringFallback.Value +
+                       ", timelineAuto=" + TimelineSpringFallbackAuto.Value +
+                       ", defaultPreset=" + (string.IsNullOrEmpty(DefaultPreset.Value)
+                           ? "(none)" : DefaultPreset.Value) +
                        ", presets=" + PresetDirectory.Value + ").");
 
         try
@@ -198,6 +235,14 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         {
             _showWindow = !_showWindow;
             SetInputPatches(_showWindow);
+        }
+        KeyboardShortcut timelineKey = TimelineSpringFallbackKey.Value;
+        if (timelineKey.IsDown())
+        {
+            TimelinePlaybackSpringFallback.Value = !TimelinePlaybackSpringFallback.Value;
+            Logger.LogInfo("SOMA_TIMELINE_SAFE hotkey: fallback=" +
+                           (TimelinePlaybackSpringFallback.Value ? "enabled" : "disabled") +
+                           ", auto=" + TimelineSpringFallbackAuto.Value);
         }
         if (_showWindow)
         {
@@ -425,6 +470,8 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         GUILayout.Space(6f);
         DrawWholeBodyPanel(controller);
         GUILayout.Space(8f);
+        DrawDefaultsPanel();
+        GUILayout.Space(8f);
         string[] partNames = { "大腿 Thigh", "手臂 Arm", "腹部 Belly", "胸部 Breast", "臀部 Butt" };
         // Explicit toggle buttons instead of SelectionGrid: the grid click could be
         // eaten by the input-blocking patches, leaving the panel stuck on the wrong
@@ -595,15 +642,18 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         }
         GUILayout.BeginHorizontal();
         _presetName = GUILayout.TextField(_presetName, 120);
-        if (GUILayout.Button("导出  Export"))
+        if (GUILayout.Button("保存当前设置  Save"))
         {
-            string targetPath;
-            if (WindowsFileDialog.ShowSave(PresetDirectory.Value, EnsureXml(_presetName), out targetPath))
+            string targetPath = Path.Combine(PresetDirectory.Value, EnsureXml(_presetName));
+            controller.SavePreset(targetPath);
+            int newIndex = Array.IndexOf(GetPresetFiles(), EnsureXml(_presetName));
+            if (newIndex >= 0)
             {
-                controller.SavePreset(targetPath);
+                _presetIndex = newIndex;
             }
+            Logger.LogInfo("FPC_PRESET_APPLY saved preset " + Path.GetFileName(targetPath));
         }
-        if (GUILayout.Button("导入所选  Import") && presetFiles.Length > 0)
+        if (GUILayout.Button("应用所选  Apply") && presetFiles.Length > 0)
         {
             controller.LoadPreset(Path.Combine(PresetDirectory.Value, presetFiles[_presetIndex]));
             controller.Apply(resetPosition: true);
@@ -618,11 +668,55 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
             }
         }
         GUILayout.EndHorizontal();
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button("设为默认  Set default") && presetFiles.Length > 0)
+        {
+            DefaultPreset.Value = presetFiles[_presetIndex];
+            Logger.LogInfo("FPC_PRESET_APPLY default preset set to " + DefaultPreset.Value);
+        }
+        if (GUILayout.Button("清除默认  Clear default"))
+        {
+            DefaultPreset.Value = "";
+            Logger.LogInfo("FPC_PRESET_APPLY default preset cleared");
+        }
+        if (GUILayout.Button("导出  Export"))
+        {
+            string targetPath;
+            if (WindowsFileDialog.ShowSave(PresetDirectory.Value, EnsureXml(_presetName), out targetPath))
+            {
+                controller.SavePreset(targetPath);
+            }
+        }
+        GUILayout.EndHorizontal();
+        GUILayout.Label(string.IsNullOrEmpty(DefaultPreset.Value)
+            ? "默认预设：未设置；无卡数据的角色使用内置参数。"
+            : "默认预设：" + DefaultPreset.Value + "（无卡数据的角色自动应用）",
+            GUILayout.Width(520f));
 
         DrawBoneAmounts(ctrlId,
             part.GamePhysics ? part.ChainBones : part.Bones,
             part.GamePhysics,
             GetPartBoneLabels(partId));
+    }
+
+    private static void DrawDefaultsPanel()
+    {
+        GUILayout.Label("默认值  Defaults (global)");
+        DefaultThighEnabled.Value = GUILayout.Toggle(DefaultThighEnabled.Value,
+            " 默认启用 大腿 Thigh");
+        DefaultArmEnabled.Value = GUILayout.Toggle(DefaultArmEnabled.Value,
+            " 默认启用 手臂 Arm");
+        DefaultBellyEnabled.Value = GUILayout.Toggle(DefaultBellyEnabled.Value,
+            " 默认启用 腹部 Belly");
+        DefaultBreastEnabled.Value = GUILayout.Toggle(DefaultBreastEnabled.Value,
+            " 默认启用 胸部 Breast");
+        DefaultButtEnabled.Value = GUILayout.Toggle(DefaultButtEnabled.Value,
+            " 默认启用 臀部 Butt");
+        ApplyDefaultsToAllCharacters.Value = GUILayout.Toggle(
+            ApplyDefaultsToAllCharacters.Value,
+            " 应用到所有角色（覆盖卡片保存的启用状态）");
+        GUILayout.Label("仅对无卡数据的角色生效时关闭上面这项；已加载的角色需重载后生效。",
+            GUILayout.Width(520f));
     }
 
     private void DrawWholeBodyPanel(ThighController controller)
@@ -646,16 +740,37 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         motion /= 5f;
 
         GUILayout.Label("Timeline 兼容  Timeline compatibility");
-        bool oldTimelineFallback = TimelinePlaybackSpringFallback.Value;
-        bool newTimelineFallback = GUILayout.Toggle(oldTimelineFallback,
-            " 播放 Timeline 时 Chain 临时切换为弹簧（防四肢扭曲）");
-        if (newTimelineFallback != oldTimelineFallback)
+        int timelineMode = !TimelinePlaybackSpringFallback.Value ? 0
+            : TimelineSpringFallbackAuto.Value ? 2 : 1;
+        int newTimelineMode = timelineMode;
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Toggle(timelineMode == 0, "关闭  Off") && timelineMode != 0)
         {
-            TimelinePlaybackSpringFallback.Value = newTimelineFallback;
-            Logger.LogInfo("SOMA_TIMELINE_SAFE option=" +
-                           (newTimelineFallback ? "enabled" : "disabled"));
+            newTimelineMode = 0;
         }
-        if (newTimelineFallback)
+        if (GUILayout.Toggle(timelineMode == 1, "手动  Manual") && timelineMode != 1)
+        {
+            newTimelineMode = 1;
+        }
+        if (GUILayout.Toggle(timelineMode == 2, "自动  Auto") && timelineMode != 2)
+        {
+            newTimelineMode = 2;
+        }
+        GUILayout.EndHorizontal();
+        if (newTimelineMode != timelineMode)
+        {
+            TimelinePlaybackSpringFallback.Value = newTimelineMode != 0;
+            TimelineSpringFallbackAuto.Value = newTimelineMode == 2;
+            Logger.LogInfo("SOMA_TIMELINE_SAFE option=" +
+                           (newTimelineMode == 0 ? "disabled" :
+                            newTimelineMode == 1 ? "manual" : "auto"));
+        }
+        if (newTimelineMode == 0)
+        {
+            GUILayout.Label("默认关闭；只在遇到播放即扭曲的特殊场景时开启。",
+                GUILayout.Width(520f));
+        }
+        else if (newTimelineMode == 1)
         {
             GUILayout.Label(TimelineConstraintBridge.IsTimelinePlaying()
                 ? "状态：Timeline 播放中，Chain 部位正在临时使用 Spring；停止后自动恢复。"
@@ -664,9 +779,15 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         }
         else
         {
-            GUILayout.Label("默认关闭；只在遇到播放即扭曲的特殊场景时开启。",
+            GUILayout.Label(TimelineConstraintBridge.IsTimelinePlaying()
+                ? "状态：自动模式——仅 Timeline 实际驱动（NodesConstraints）的角色临时使用 Spring。"
+                : "状态：自动待命——播放 Timeline 并驱动角色时自动生效，不改角色卡模式。",
                 GUILayout.Width(520f));
         }
+        string timelineHotkey = TimelineSpringFallbackKey.Value.MainKey == KeyCode.None
+            ? "未设置（可在 F1 配置）"
+            : TimelineSpringFallbackKey.Value.ToString();
+        GUILayout.Label("快捷键：" + timelineHotkey, GUILayout.Width(520f));
 
         GUILayout.Space(6f);
         GUILayout.Label("全身控制  Global controls");
