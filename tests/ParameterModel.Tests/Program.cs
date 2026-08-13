@@ -344,7 +344,9 @@ internal static class Program
                 Near(chainBase[i][bone] * 0.75f,
                     stable.ChainBones.Get(bone).Amp,
                     parts[i] + " low chain amp " + bone);
-                Near(chainBase[i][bone],
+                float mediumChainAmp = parts[i] == FleshPartId.Thigh && bone == 1
+                    ? 0.50f : chainBase[i][bone];
+                Near(mediumChainAmp,
                     natural.ChainBones.Get(bone).Amp,
                     parts[i] + " medium chain amp " + bone);
                 Near(highChainAmp,

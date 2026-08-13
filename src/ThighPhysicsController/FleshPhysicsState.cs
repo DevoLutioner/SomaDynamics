@@ -12,6 +12,8 @@ internal sealed class FleshBone
     public Vector3 RestDirLocal;
     public Vector3 PristineLocal;
     public Quaternion PristineRot;
+    public Quaternion AnimatedRotLocal;
+    public Quaternion LastSetRotLocal;
     public Vector3 PristineScale;
     public Vector3 BaseLocal;
     public Vector3 Offset;

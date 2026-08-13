@@ -1,4 +1,4 @@
-# Soma Dynamics｜形体动力学控制器 v1.0.3.0
+# Soma Dynamics｜形体动力学控制器 v1.0.3.1
 
 Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管理大腿、手臂、
 腹部、胸部和臀部。界面以少量感知参数为主，同时保留逐骨高级调节。
@@ -6,7 +6,7 @@ Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管�
 内部 GUID、DLL、安装目录和角色卡数据键继续沿用 `ThighPhysicsController`，以兼容旧卡、
 配置和现有安装。
 
-## 1.0 至 1.0.3.0 修复总览
+## 1.0 至 1.0.3.1 修复总览
 
 | 版本 | 用户可见修复 |
 | --- | --- |
@@ -19,6 +19,7 @@ Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管�
 | 1.0.2.4 | 检测角色整体的世界空间瞬移/大旋转并整链安全重锚；修复 Timeline 大位移时小腿和手臂严重拉伸变形。 |
 | 1.0.2.7 | 面板新增按需 Timeline 安全弹簧开关；播放时 Chain 临时使用 Spring，暂停/停止自动恢复，不改角色卡模式。 |
 | 1.0.3.0 | 预设一键保存/应用与默认预设自动套用；五部位默认启用开关（可全局覆盖）；Timeline 弹簧三档（关闭/手动/自动）与自定义快捷键。 |
+| 1.0.3.1 | 默认开关修复（不再被 Force enable 覆盖）+ 中档 Thigh02 封顶；弹簧旋转采纳（自由H 不再扭曲）；检测到自由H 自动全部位切弹簧、退出恢复；面板一键【全部弹簧/全部链式】。 |
 
 完整逐项记录见 [`CHANGELOG.md`](CHANGELOG.md)。
 
@@ -57,9 +58,9 @@ Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管�
 三项范围均为 `0–2`：`0–1` 是常用区，`1–2` 是受安全限幅保护的增强区。
 
 `低 / 中 / 高` 不改写各部位的求解模式，并同步调整 Spring 与 Chain 两套逐骨 Amp：
-中档逐骨 Amp 精确采用作者常用 `MyPreset`，低档为该基准的 0.75 倍，高档统一为
-1.30 倍；只有高档大腿 `Thigh02 Amp` 是防塌陷例外，Spring 与 Chain 均固定为
-`0.50`，中档仍保持 `MyPreset` 原值。
+中档逐骨 Amp 采用作者常用 `MyPreset`，低档为该基准的 0.75 倍，高档统一为
+1.30 倍；大腿 `Thigh02 Amp` 是防塌陷例外，中档封顶、高档固定均为
+`0.50`（Spring 与 Chain 同规则），其余骨中档保持 `MyPreset` 原值。
 胸部中/高档 `摆动强度 Swing` 分别封顶 `0.50 / 0.60`，避免碰撞链被过度激发。三档同时调整强度、
 柔软度与运动响应，避免中高档仅因参数饱和而体感接近。
 因此应用任意档位后，仍可独立组合三个部位的 Spring / Chain，且档位
@@ -131,7 +132,7 @@ BPC 开发术语。完成迁移后，不需要同时启用以下旧插件：
 
 ## 兼容与数据版本
 
-- 插件版本：`1.0.3.0`
+- 插件版本：`1.0.3.1`
 - 卡片数据版本：`61`
 - XML 版本：`4`
 - GUID：`codex.koikatumanager.thighphysicscontroller`
@@ -149,6 +150,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-ThighPhysicsCo
 
 正式构建会运行参数模型测试、胸臀实时应用安全契约、品牌/UI 字符串烟测，并生成：
 
-- `packaging\SomaDynamics_1.0.3.0\`
-- `packaging\SomaDynamics_1.0.3.0.zip`
-- `packaging\SomaDynamics_1.0.3.0.zip.sha256`
+- `packaging\SomaDynamics_1.0.3.1\`
+- `packaging\SomaDynamics_1.0.3.1.zip`
+- `packaging\SomaDynamics_1.0.3.1.zip.sha256`

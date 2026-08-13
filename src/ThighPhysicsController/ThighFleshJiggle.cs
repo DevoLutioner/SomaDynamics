@@ -217,6 +217,8 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
             }
             bone.Bone.localPosition = bone.PristineLocal;
             bone.Bone.localRotation = bone.PristineRot;
+            bone.AnimatedRotLocal = bone.PristineRot;
+            bone.LastSetRotLocal = bone.PristineRot;
             FleshStateReset.Spring(bone, bone.PristineLocal);
         }
         // Rebuild chains AFTER restoring the pristine pose, otherwise the chain
@@ -464,6 +466,8 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         flesh.Parent = bone.parent;
         flesh.PristineLocal = bone.localPosition;
         flesh.PristineRot = bone.localRotation;
+        flesh.AnimatedRotLocal = bone.localRotation;
+        flesh.LastSetRotLocal = bone.localRotation;
         flesh.PristineScale = bone.localScale;
         flesh.LastSetRot = bone.localRotation;
         flesh.BaseLocal = bone.localPosition;
@@ -729,6 +733,8 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                     flesh.Parent = parent;
                     flesh.Bone.localPosition = flesh.PristineLocal;
                     flesh.Bone.localRotation = flesh.PristineRot;
+                    flesh.AnimatedRotLocal = flesh.PristineRot;
+                    flesh.LastSetRotLocal = flesh.PristineRot;
                     FleshStateReset.Spring(flesh, flesh.PristineLocal);
                     continue;
                 }
@@ -739,10 +745,14 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                 if ((flesh.Bone.localPosition - expectedLocal).magnitude > 0.005f)
                 {
                     _metricReanchors++;
-                    // The game or another plugin moved this bone: re-anchor and clear state.
+                    // The game or another plugin moved this bone: re-anchor and clear
+                    // state. Adopt the incoming rotation instead of snapping it back
+                    // to the card pose, otherwise H animations and body refreshes
+                    // fight the solver and leave the limb twisted.
                     Vector3 reanchorLocal = flesh.Bone.localPosition;
                     flesh.LastReanchorTime = _time;
-                    flesh.Bone.localRotation = flesh.PristineRot;
+                    flesh.AnimatedRotLocal = flesh.Bone.localRotation;
+                    flesh.LastSetRotLocal = flesh.AnimatedRotLocal;
                     FleshStateReset.Spring(flesh, reanchorLocal);
                     continue;
                 }
@@ -752,7 +762,8 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                     _metricReanchors++;
                     // Large teleport / scene switch: re-anchor without fighting the game.
                     flesh.Bone.localPosition = flesh.BaseLocal;
-                    flesh.Bone.localRotation = flesh.PristineRot;
+                    flesh.AnimatedRotLocal = flesh.Bone.localRotation;
+                    flesh.LastSetRotLocal = flesh.AnimatedRotLocal;
                     FleshStateReset.Spring(flesh, flesh.BaseLocal);
                     flesh.LastReanchorTime = _time;
                     continue;
@@ -945,14 +956,24 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
             }
             bool activelyRotating = ParamsRef.Bones.GetRotCalc(flesh.BoneIndex) ||
                                     ParamsRef.Bones.GetRotAmp(flesh.BoneIndex) > 0.0001f;
+            // Rotation ownership: when the animation or another plugin rotates the
+            // bone away from Soma's last write, adopt that rotation as the animated
+            // base instead of snapping it back to the card pose. Free-H animations
+            // and BPC/body refreshes otherwise fight the solver and twist the limb.
+            if (Quaternion.Angle(flesh.Bone.localRotation, flesh.LastSetRotLocal) > 2f)
+            {
+                flesh.AnimatedRotLocal = flesh.Bone.localRotation;
+                flesh.LastSetRotLocal = flesh.AnimatedRotLocal;
+                flesh.LastSetRot = flesh.Bone.localRotation;
+            }
             if (ThighPhysicsControllerPlugin.DebugLogFlesh.Value &&
                 activelyRotating &&
-                Quaternion.Angle(flesh.Bone.localRotation, flesh.LastSetRot) > 2f &&
+                Quaternion.Angle(flesh.Bone.localRotation, flesh.LastSetRotLocal) > 2f &&
                 _time - flesh.LastOverwriteLogTime >= 2f)
             {
                 flesh.LastOverwriteLogTime = _time;
                 UnityEngine.Debug.Log("Flesh physics [" + flesh.Bone.name + "]: rotation overwritten by game, diff=" +
-                          Quaternion.Angle(flesh.Bone.localRotation, flesh.LastSetRot).ToString("F1"));
+                          Quaternion.Angle(flesh.Bone.localRotation, flesh.LastSetRotLocal).ToString("F1"));
             }
             if (ParamsRef.Bones.GetRotCalc(flesh.BoneIndex) && flesh.AimChild != null)
             {
@@ -980,6 +1001,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                     }
                 }
                 flesh.LastSetRot = flesh.Bone.rotation;
+                flesh.LastSetRotLocal = flesh.Bone.localRotation;
                 continue;
             }
             float rotAmp = ParamsRef.Bones.GetRotAmp(flesh.BoneIndex);
@@ -992,19 +1014,21 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                 rotEuler.x = Mathf.Clamp(rotEuler.x, -30f, 30f);
                 rotEuler.y = Mathf.Clamp(rotEuler.y, -30f, 30f);
                 rotEuler.z = Mathf.Clamp(rotEuler.z, -30f, 30f);
-                flesh.Bone.localRotation = flesh.PristineRot * Quaternion.Euler(rotEuler);
+                flesh.Bone.localRotation = flesh.AnimatedRotLocal * Quaternion.Euler(rotEuler);
                 if (IsBadQuat(flesh.Bone.localRotation))
                 {
                     ResetFleshBoneState(flesh);
                     continue;
                 }
                 flesh.LastSetRot = flesh.Bone.localRotation;
+                flesh.LastSetRotLocal = flesh.Bone.localRotation;
             }
             else
             {
                 flesh.RotSmoothed = Vector3.zero;
-                flesh.Bone.localRotation = flesh.PristineRot;
-                flesh.LastSetRot = flesh.PristineRot;
+                flesh.Bone.localRotation = flesh.AnimatedRotLocal;
+                flesh.LastSetRot = flesh.AnimatedRotLocal;
+                flesh.LastSetRotLocal = flesh.AnimatedRotLocal;
             }
         }
 

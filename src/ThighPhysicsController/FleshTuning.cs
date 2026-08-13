@@ -210,12 +210,24 @@ internal static class FleshTuning
                 : new[] { 1.00f, 0.20f, 0.125f, 0.03f };
         ScaleAmplitudes(p.Bones, spring, scale);
         ScaleAmplitudes(p.ChainBones, chain, scale);
-        if (preset == FleshFeelPreset.Dance && part == FleshPartId.Thigh)
+        if (part == FleshPartId.Thigh && preset == FleshFeelPreset.Dance)
         {
-            // Tested high-level structural guard. Low and medium keep their
-            // MyPreset-derived values exactly; only High uses the 0.50 exception.
+            // Tested high-level structural guard: High pins Thigh02 to 0.50.
             p.Bones.Thigh02.Amp = 0.50f;
             p.ChainBones.Thigh02.Amp = 0.50f;
+        }
+        else if (part == FleshPartId.Thigh && preset == FleshFeelPreset.Natural)
+        {
+            // Medium keeps MyPreset-derived values, but Thigh02 must never
+            // exceed 0.50 to prevent thigh collapse (user-requested cap).
+            if (p.Bones.Thigh02.Amp > 0.50f)
+            {
+                p.Bones.Thigh02.Amp = 0.50f;
+            }
+            if (p.ChainBones.Thigh02.Amp > 0.50f)
+            {
+                p.ChainBones.Thigh02.Amp = 0.50f;
+            }
         }
     }
 

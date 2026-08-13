@@ -271,6 +271,7 @@ public sealed class ThighController : CharaCustomFunctionController
         string key = IdentityKey;
         bool useMemory = ThighPhysicsControllerPlugin.RememberPerCharacter.Value && key.Length > 0;
         FleshProfile profile = null;
+        bool hadCardData = true;
         if (useMemory && ThighPhysicsControllerPlugin.MemoryProfiles.TryGetValue(key, out profile))
         {
             Params = profile.Thigh;
@@ -278,12 +279,11 @@ public sealed class ThighController : CharaCustomFunctionController
             BellyParams = profile.Belly;
             BreastProfile = profile.Breast;
             ButtParams = profile.Butt;
-            ApplyDefaultPartEnables(hadCardData: true);
         }
         else
         {
             PluginData extended = GetExtendedData();
-            bool hadCardData = extended != null && extended.data != null && extended.data.Count > 0;
+            hadCardData = extended != null && extended.data != null && extended.data.Count > 0;
             Params = ThighParams.CreateDefault();
             if (hadCardData)
             {
@@ -310,7 +310,6 @@ public sealed class ThighController : CharaCustomFunctionController
             {
                 ApplyDefaultPresetIfConfigured();
             }
-            ApplyDefaultPartEnables(hadCardData);
             if (useMemory)
             {
                 ThighPhysicsControllerPlugin.MemoryProfiles[key] = new FleshProfile
@@ -331,7 +330,92 @@ public sealed class ThighController : CharaCustomFunctionController
             BreastProfile.SetEnabledAll(true);
             ButtParams.Enabled = true;
         }
+        // 默认开关必须在 ForceEnable 之后执行,否则全局关闭的部位会被强制重新打开。
+        ApplyDefaultPartEnables(hadCardData);
         _paramsLoaded = true;
+    }
+
+    /// <summary>
+    /// Panel hook: applies the global default enable switches to this character
+    /// right now (used when "apply to all characters" is toggled on).
+    /// </summary>
+    internal void ApplyGlobalDefaultPartEnables()
+    {
+        Params.Enabled = ThighPhysicsControllerPlugin.DefaultThighEnabled.Value;
+        ArmParams.Enabled = ThighPhysicsControllerPlugin.DefaultArmEnabled.Value;
+        BellyParams.Enabled = ThighPhysicsControllerPlugin.DefaultBellyEnabled.Value;
+        BreastProfile.SetEnabledAll(ThighPhysicsControllerPlugin.DefaultBreastEnabled.Value);
+        ButtParams.Enabled = ThighPhysicsControllerPlugin.DefaultButtEnabled.Value;
+        Apply(resetPosition: false);
+    }
+
+    internal bool HForcedSpringThigh;
+    internal bool HForcedSpringArm;
+    internal bool HForcedSpringBelly;
+
+    /// <summary>
+    /// Free-H support: switch every Chain part to the Spring solver while the H
+    /// scene is active. The H animation owns the limb pose, and Spring's
+    /// external-rotation adoption handles animated bones without deforming them.
+    /// </summary>
+    internal void ForceSpringInHScene()
+    {
+        bool changed = false;
+        if (Params.GamePhysics)
+        {
+            Params.GamePhysics = false;
+            HForcedSpringThigh = true;
+            changed = true;
+        }
+        if (ArmParams.GamePhysics)
+        {
+            ArmParams.GamePhysics = false;
+            HForcedSpringArm = true;
+            changed = true;
+        }
+        if (BellyParams.GamePhysics)
+        {
+            BellyParams.GamePhysics = false;
+            HForcedSpringBelly = true;
+            changed = true;
+        }
+        if (changed)
+        {
+            ClearDeformation();
+            Apply(resetPosition: true);
+        }
+    }
+
+    /// <summary>
+    /// Restores the Chain solver for parts that ForceSpringInHScene switched.
+    /// Parts the user had in Spring mode before H stay untouched.
+    /// </summary>
+    internal void RestoreHChainModes()
+    {
+        bool changed = false;
+        if (HForcedSpringThigh)
+        {
+            Params.GamePhysics = true;
+            HForcedSpringThigh = false;
+            changed = true;
+        }
+        if (HForcedSpringArm)
+        {
+            ArmParams.GamePhysics = true;
+            HForcedSpringArm = false;
+            changed = true;
+        }
+        if (HForcedSpringBelly)
+        {
+            BellyParams.GamePhysics = true;
+            HForcedSpringBelly = false;
+            changed = true;
+        }
+        if (changed)
+        {
+            ClearDeformation();
+            Apply(resetPosition: true);
+        }
     }
 
     private void ApplyDefaultPresetIfConfigured()

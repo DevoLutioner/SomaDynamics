@@ -15,7 +15,7 @@ using UnityEngine;
 namespace ThighPhysicsController;
 
 [BepInDependency("marco.kkapi")]
-[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Soma Dynamics", "1.0.3.0")]
+[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Soma Dynamics", "1.0.3.1")]
 [DefaultExecutionOrder(-1000)]
 public class ThighPhysicsControllerPlugin : BaseUnityPlugin
 {
@@ -68,6 +68,7 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
     private static ManualLogSource _runtimeLog;
     private static bool _loggedBustSoftGuard;
     private static bool _loggedBustGravityGuard;
+    private static bool _hSceneActive;
 
     private Harmony _harmony;
     private Harmony _inputHarmony;
@@ -276,6 +277,38 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
             if (controller != null)
             {
                 controller.UpdateTick();
+            }
+        }
+
+        // Free-H detection: while an H scene is active, every thigh/arm/belly
+        // part runs the Spring solver (the H animation owns the limb pose).
+        // Chain parts are switched back automatically when the H scene ends.
+        bool hSceneActive = HSceneBridge.IsFreeHActive();
+        if (hSceneActive != _hSceneActive)
+        {
+            _hSceneActive = hSceneActive;
+            Logger.LogInfo("SOMA_H_MODE hScene=" + hSceneActive);
+            if (!hSceneActive)
+            {
+                for (int i = Controllers.Count - 1; i >= 0; i--)
+                {
+                    ThighController controller = Controllers[i];
+                    if (controller != null)
+                    {
+                        controller.RestoreHChainModes();
+                    }
+                }
+            }
+        }
+        if (hSceneActive)
+        {
+            for (int i = Controllers.Count - 1; i >= 0; i--)
+            {
+                ThighController controller = Controllers[i];
+                if (controller != null)
+                {
+                    controller.ForceSpringInHScene();
+                }
             }
         }
     }
@@ -702,21 +735,61 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
     private static void DrawDefaultsPanel()
     {
         GUILayout.Label("默认值  Defaults (global)");
-        DefaultThighEnabled.Value = GUILayout.Toggle(DefaultThighEnabled.Value,
-            " 默认启用 大腿 Thigh");
-        DefaultArmEnabled.Value = GUILayout.Toggle(DefaultArmEnabled.Value,
-            " 默认启用 手臂 Arm");
-        DefaultBellyEnabled.Value = GUILayout.Toggle(DefaultBellyEnabled.Value,
-            " 默认启用 腹部 Belly");
-        DefaultBreastEnabled.Value = GUILayout.Toggle(DefaultBreastEnabled.Value,
-            " 默认启用 胸部 Breast");
-        DefaultButtEnabled.Value = GUILayout.Toggle(DefaultButtEnabled.Value,
-            " 默认启用 臀部 Butt");
-        ApplyDefaultsToAllCharacters.Value = GUILayout.Toggle(
-            ApplyDefaultsToAllCharacters.Value,
+        bool defaultsChanged = false;
+        defaultsChanged |= DrawDefaultToggle(DefaultThighEnabled, " 默认启用 大腿 Thigh");
+        defaultsChanged |= DrawDefaultToggle(DefaultArmEnabled, " 默认启用 手臂 Arm");
+        defaultsChanged |= DrawDefaultToggle(DefaultBellyEnabled, " 默认启用 腹部 Belly");
+        defaultsChanged |= DrawDefaultToggle(DefaultBreastEnabled, " 默认启用 胸部 Breast");
+        defaultsChanged |= DrawDefaultToggle(DefaultButtEnabled, " 默认启用 臀部 Butt");
+        bool oldApplyAll = ApplyDefaultsToAllCharacters.Value;
+        bool newApplyAll = GUILayout.Toggle(oldApplyAll,
             " 应用到所有角色（覆盖卡片保存的启用状态）");
-        GUILayout.Label("仅对无卡数据的角色生效时关闭上面这项；已加载的角色需重载后生效。",
+        if (newApplyAll != oldApplyAll)
+        {
+            ApplyDefaultsToAllCharacters.Value = newApplyAll;
+            defaultsChanged = true;
+            if (_runtimeLog != null)
+            {
+                _runtimeLog.LogInfo("FPC_DEFAULTS_APPLY applyToAll=" + newApplyAll);
+            }
+        }
+        if (defaultsChanged && ApplyDefaultsToAllCharacters.Value)
+        {
+            // 应用到所有角色时立即生效:遍历已加载角色当场套用。
+            for (int i = Controllers.Count - 1; i >= 0; i--)
+            {
+                ThighController c = Controllers[i];
+                if (c != null)
+                {
+                    c.ApplyGlobalDefaultPartEnables();
+                }
+            }
+            if (_runtimeLog != null)
+            {
+                _runtimeLog.LogInfo("FPC_DEFAULTS_APPLY applied to " + Controllers.Count +
+                                    " loaded character(s)");
+            }
+        }
+        GUILayout.Label(ApplyDefaultsToAllCharacters.Value
+            ? "已对所有角色立即生效；新加载的角色也按此开关。"
+            : "仅对新加载且无卡数据的角色生效（勾选上面这项可立即应用到已加载角色）。",
             GUILayout.Width(520f));
+    }
+
+    private static bool DrawDefaultToggle(ConfigEntry<bool> entry, string label)
+    {
+        bool oldValue = entry.Value;
+        bool newValue = GUILayout.Toggle(oldValue, label);
+        if (newValue != oldValue)
+        {
+            entry.Value = newValue;
+            if (_runtimeLog != null)
+            {
+                _runtimeLog.LogInfo("FPC_DEFAULTS_APPLY " + entry.Definition.Key + "=" + newValue);
+            }
+            return true;
+        }
+        return false;
     }
 
     private void DrawWholeBodyPanel(ThighController controller)
@@ -832,7 +905,44 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
             return;
         }
         GUILayout.EndHorizontal();
+        GUILayout.Label("全部部位计算方式  All parts solver");
+        ThighParams wholeThigh = controller.GetParams(FleshPartId.Thigh);
+        ThighParams wholeArm = controller.GetParams(FleshPartId.Arm);
+        ThighParams wholeBelly = controller.GetParams(FleshPartId.Belly);
+        bool allSpring = !wholeThigh.GamePhysics && !wholeArm.GamePhysics &&
+                         !wholeBelly.GamePhysics;
+        bool allChain = wholeThigh.GamePhysics && wholeArm.GamePhysics &&
+                        wholeBelly.GamePhysics;
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button((allSpring ? "● " : "○ ") + "全部弹簧  All Spring") && !allSpring)
+        {
+            SetAllPartsMode(controller, false);
+        }
+        if (GUILayout.Button((allChain ? "● " : "○ ") + "全部链式  All Chain") && !allChain)
+        {
+            SetAllPartsMode(controller, true);
+        }
+        GUILayout.EndHorizontal();
         GUILayout.Label("实时生效 · 随角色卡保存  Live · Saved with character card");
+    }
+
+    private static void SetAllPartsMode(ThighController controller, bool chain)
+    {
+        bool changed = false;
+        for (int i = 0; i < 3; i++)
+        {
+            ThighParams part = controller.GetParams((FleshPartId)i);
+            if (part.GamePhysics != chain)
+            {
+                part.GamePhysics = chain;
+                changed = true;
+            }
+        }
+        if (changed)
+        {
+            controller.ClearDeformation();
+            controller.Apply(resetPosition: true);
+        }
     }
 
     private void DrawNativeBodyPanel(ThighController controller, FleshPartId partId,

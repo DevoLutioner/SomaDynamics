@@ -2,7 +2,7 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
 
-    [string]$Version = '1.0.3.0',
+    [string]$Version = '1.0.3.1',
 
     [string]$GameRoot = '',
 
@@ -70,6 +70,12 @@ if (-not $SkipTests) {
         throw "Parameter model tests failed with exit code $LASTEXITCODE"
     }
 }
+# Always clean before building: MSBuild's incremental state has repeatedly
+# skipped CoreCompile after source edits and shipped stale DLLs, so force a
+# from-scratch rebuild for a deterministic release artifact.
+$projectDir = Join-Path $repoRoot 'src\ThighPhysicsController'
+Remove-Item -LiteralPath (Join-Path $projectDir 'bin') -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath (Join-Path $projectDir 'obj') -Recurse -Force -ErrorAction SilentlyContinue
 & dotnet build $project -c $Configuration -p:KOIKATU_BUILD_GAME_ROOT=$GameRoot
 if ($LASTEXITCODE -ne 0) {
     throw "Build failed with exit code $LASTEXITCODE"
