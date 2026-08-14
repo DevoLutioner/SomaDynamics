@@ -8,6 +8,11 @@ internal static class FleshSolverMath
 {
     public const float ChainTeleportDistance = 0.08f;
     public const float ChainTeleportAngle = 35f;
+    // cf_s_waist01 normally rests at local zero. These limits leave room for the
+    // high preset while preventing millimetre-sized late writes from accumulating
+    // into an indefinitely long abdomen.
+    public const float BellyBaseDriftLimit = 0.02f;
+    public const float BellyTotalOffsetLimit = 0.045f;
 
     /// <summary>Maps Quaternion.ToAngleAxis output to a signed shortest-path angle.</summary>
     public static float NormalizeSignedAngle(float angle)
@@ -64,6 +69,18 @@ internal static class FleshSolverMath
         }
         return distance > ChainTeleportDistance ||
                Math.Abs(angleDegrees) > ChainTeleportAngle;
+    }
+
+    public static Vector3 ClampBellyBase(Vector3 stableBase, Vector3 candidate)
+    {
+        return stableBase + Vector3.ClampMagnitude(candidate - stableBase,
+            BellyBaseDriftLimit);
+    }
+
+    public static Vector3 ClampBellyLocal(Vector3 stableBase, Vector3 candidate)
+    {
+        return stableBase + Vector3.ClampMagnitude(candidate - stableBase,
+            BellyTotalOffsetLimit);
     }
 
     /// <summary>

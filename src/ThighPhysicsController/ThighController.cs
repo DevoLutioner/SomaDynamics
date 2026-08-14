@@ -623,13 +623,26 @@ public sealed class ThighController : CharaCustomFunctionController
         RequestNativeReapply(2);
     }
 
+    internal void OnPushupBodyMappingStarted()
+    {
+        // PushUp changes ten ShapeBody values synchronously, but ChaControl applies
+        // their actual skeleton pose later in the frame. Keep arm/belly/thigh out of
+        // that transition and capture the finished body pose as their new rest pose.
+        for (int i = 0; i < _flesh.Count; i++)
+        {
+            ThighFleshJiggle jiggle = _flesh[i];
+            if (jiggle != null && jiggle.enabled)
+                jiggle.PrepareForExternalShapeChange(2);
+        }
+    }
+
     internal void OnPushupBodyMapped()
     {
         if (ChaControl == null || !GetNativeParams(FleshPartId.Breast).Enabled)
             return;
-        // PushUp has finished writing its complete 4..13 breast-shape group.
-        // Refresh only the native breast baseline; do not reapply arm/belly/thigh.
-        ChaControl.ReSetupDynamicBoneBust(0);
+        // Do not ResetPosition here: SetShapeBodyValue has only queued the body
+        // refresh. Reapply Soma's breast table after ChaControl has committed it.
+        RequestNativeReapply(2);
     }
 
     internal bool OwnsBustSoft(BustSoft value)
@@ -651,7 +664,14 @@ public sealed class ThighController : CharaCustomFunctionController
 
     private void ApplyNativeBody()
     {
-        Apply(resetPosition: false);
+        // Delayed clothes/PushUp refreshes must never run ApplyFlesh: doing so lets a
+        // breast-only operation touch arm and belly solver state.
+        if (ChaControl == null)
+            return;
+        if (_nativeBody == null)
+            _nativeBody = new NativeDynamicBoneBridge(ChaControl);
+        _nativeBody.Apply(FleshPartId.Breast, GetNativeParams(FleshPartId.Breast));
+        _nativeBody.Apply(FleshPartId.Butt, ButtParams);
     }
 
     internal void ClearDeformation()
