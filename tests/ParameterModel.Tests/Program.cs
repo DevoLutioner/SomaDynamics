@@ -594,6 +594,26 @@ internal static class Program
             "whole-character Timeline rotation is treated as a teleport");
         True(FleshSolverMath.IsChainAnchorTeleport(float.NaN, 0f),
             "invalid anchor motion fails safe instead of entering physics");
+        UnityEngine.Vector3 bellyStable = new UnityEngine.Vector3(0.004f, -0.002f, 0.001f);
+        UnityEngine.Vector3 bellyBase = FleshSolverMath.ClampBellyBase(bellyStable,
+            bellyStable + new UnityEngine.Vector3(0f, 0.20f, 0f));
+        Near(FleshSolverMath.BellyBaseDriftLimit,
+            (bellyBase - bellyStable).magnitude,
+            "belly base cannot accumulate beyond its stable-rest guard");
+        UnityEngine.Vector3 bellyVisible = FleshSolverMath.ClampBellyLocal(bellyStable,
+            bellyStable + new UnityEngine.Vector3(0.20f, 0f, 0f));
+        Near(FleshSolverMath.BellyTotalOffsetLimit,
+            (bellyVisible - bellyStable).magnitude,
+            "belly final write cannot exceed the absolute noodle guard");
+        UnityEngine.Vector3 bellyOrdinary = bellyStable +
+            new UnityEngine.Vector3(0.006f, 0.002f, 0f);
+        Near(0f, (FleshSolverMath.ClampBellyBase(bellyStable, bellyOrdinary) -
+                  bellyOrdinary).magnitude,
+            "ordinary belly rest movement is preserved below the guard");
+        float highBellyWriteLimit = (0.02f + 0.01f * 1.30f) *
+                                    FleshSolverMath.TargetRangeScale(1f, 0.78f);
+        LessOrEqual(highBellyWriteLimit, FleshSolverMath.BellyTotalOffsetLimit,
+            "belly noodle guard preserves the complete built-in high preset range");
         True(!FleshSolverMath.ShouldYieldConstraintRotation(false, false),
             "idle Timeline without constraints keeps Chain rotation");
         True(!FleshSolverMath.ShouldYieldConstraintRotation(true, false),

@@ -214,7 +214,7 @@ BepInEx/config/codex.koikatu.mmddynamicbonestabilizer.cfg
 | BreastPhysicsController | 不建议 | 与 Soma Dynamics 同时写胸臀链 |
 | BPC Auto Default | 不建议 | 会在加载时再次覆盖胸臀参数 |
 | DisableHipDynamicBones | 不建议 | 会阻止 Soma Dynamics 管理臀部原生链 |
-| PushUp / 胸托 | 是 | 1.0.3.5 起在 PushUp 写完整组胸型后按 BPC 流程只刷新胸部基准，不触碰手臂/腹部 |
+| PushUp / 胸托 | 是 | 1.0.3.6 起先暂停 Soma 肢体输出，等待游戏胸型稳定后重采体型基准并单独恢复胸链；不再把滑条刷新传给手臂/腹部 |
 | 旧版 FPC / ThighPhysicsController | 不可重复 | 只保留最新 DLL |
 
 ## 12. 常见问题

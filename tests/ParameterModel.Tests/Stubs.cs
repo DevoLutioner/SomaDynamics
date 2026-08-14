@@ -22,6 +22,31 @@ namespace UnityEngine
             this.y = y;
             this.z = z;
         }
+
+        public float magnitude => (float)System.Math.Sqrt(x * x + y * y + z * z);
+
+        public static Vector3 operator +(Vector3 a, Vector3 b)
+        {
+            return new Vector3(a.x + b.x, a.y + b.y, a.z + b.z);
+        }
+
+        public static Vector3 operator -(Vector3 a, Vector3 b)
+        {
+            return new Vector3(a.x - b.x, a.y - b.y, a.z - b.z);
+        }
+
+        public static Vector3 operator *(Vector3 value, float scale)
+        {
+            return new Vector3(value.x * scale, value.y * scale, value.z * scale);
+        }
+
+        public static Vector3 ClampMagnitude(Vector3 value, float maxLength)
+        {
+            float length = value.magnitude;
+            return length > maxLength && length > 0f
+                ? value * (maxLength / length)
+                : value;
+        }
     }
 
     public static class Mathf

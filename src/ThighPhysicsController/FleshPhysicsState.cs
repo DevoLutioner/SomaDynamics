@@ -56,6 +56,11 @@ internal sealed class ChainParticle
     public Vector3 LastAppliedLocal;
     public Vector3 PrevAnimatedLocal;
     public Vector3 BaseLocal;
+    /// <summary>
+    /// Stable rest position captured when the skeleton/body shape is rebuilt.
+    /// Unlike BaseLocal, ordinary per-frame external writes do not advance it.
+    /// </summary>
+    public Vector3 SafeBaseLocal;
     public Quaternion BaseRotLocal;
     public Quaternion LastAppliedRotLocal;
     public Vector3 RotTarget;

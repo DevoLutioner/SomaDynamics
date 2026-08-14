@@ -15,7 +15,7 @@ using UnityEngine;
 namespace ThighPhysicsController;
 
 [BepInDependency("marco.kkapi")]
-[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Soma Dynamics", "1.0.3.5")]
+[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Soma Dynamics", "1.0.3.6")]
 [DefaultExecutionOrder(-1000)]
 public class ThighPhysicsControllerPlugin : BaseUnityPlugin
 {
@@ -174,16 +174,29 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         if (pushupController == null)
             return;
         MethodInfo mapped = AccessTools.Method(pushupController, "MapBodyInfoToChaFile");
+        MethodInfo prefix = AccessTools.Method(typeof(ThighPhysicsControllerPlugin),
+            nameof(PushupMapBodyPrefix));
         MethodInfo postfix = AccessTools.Method(typeof(ThighPhysicsControllerPlugin),
             nameof(PushupMapBodyPostfix));
-        if (mapped == null || postfix == null)
+        if (mapped == null || prefix == null || postfix == null)
         {
             Logger.LogWarning("PushUp detected, but its completed body-map method was not found.");
             return;
         }
-        _harmony.Patch(mapped, postfix: new HarmonyMethod(postfix));
+        _harmony.Patch(mapped, prefix: new HarmonyMethod(prefix),
+            postfix: new HarmonyMethod(postfix));
         _pushupBridgeInstalled = true;
-        Logger.LogInfo("PushUp completed-body compatibility bridge installed.");
+        Logger.LogInfo("PushUp deferred body-shape compatibility bridge installed.");
+    }
+
+    private static void PushupMapBodyPrefix(object __instance)
+    {
+        Component component = __instance as Component;
+        if (component == null)
+            return;
+        ThighController controller = component.GetComponent<ThighController>();
+        if (controller != null)
+            controller.OnPushupBodyMappingStarted();
     }
 
     private static void PushupMapBodyPostfix(object __instance)
@@ -198,7 +211,7 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         if (!_loggedPushupBridge)
         {
             _loggedPushupBridge = true;
-            _runtimeLog?.LogInfo("FPC_PUSHUP_COMMIT captured completed breast shape baseline.");
+            _runtimeLog?.LogInfo("FPC_PUSHUP_COMMIT queued deferred breast/body rebase.");
         }
     }
 

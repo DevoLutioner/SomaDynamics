@@ -40,6 +40,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
     private int _chainPoseSettleTimeoutFrames;
     private int _chainPoseStableFrames;
     private int _chainPoseSettleElapsedFrames;
+    private bool _shapeRebasePending;
     private bool _lastGamePhysics;
     private bool _timelineSpringFallbackLastFrame;
     private FleshPartId _partId = FleshPartId.Thigh;
@@ -177,6 +178,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
             particle.LastAppliedLocal = Vector3.zero;
             particle.PrevAnimatedLocal = bone.localPosition;
             particle.BaseLocal = bone.localPosition;
+            particle.SafeBaseLocal = bone.localPosition;
             particle.BaseRotLocal = bone.localRotation;
             particle.LastAppliedRotLocal = Quaternion.identity;
             particle.RotTarget = Vector3.zero;
@@ -252,6 +254,35 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         }
 
         RemoveOwnedChainDeformation();
+        _shapeRebasePending = false;
+        _chainPoseSettleActive = true;
+        _chainPoseSettleMinFrames = Math.Max(2, settleFrames);
+        _chainPoseSettleTimeoutFrames = Math.Max(12, settleFrames + 8);
+        _chainPoseStableFrames = 0;
+        _chainPoseSettleElapsedFrames = 0;
+        CapturePoseSample();
+        ResetMetricWindow();
+        ResetPerformanceWindow();
+        _metricWarmupRemaining = 2f;
+    }
+
+    /// <summary>
+    /// PushUp and maker body sliders queue ShapeBody work that ChaControl applies
+    /// later in the frame. Remove Soma's current output, yield until that body pose
+    /// is stable, then make it the new pristine/rest pose. Spring must participate
+    /// too, otherwise arm and belly interpret a breast-shape refresh as motion.
+    /// </summary>
+    public void PrepareForExternalShapeChange(int settleFrames)
+    {
+        if (ParamsRef == null)
+            return;
+
+        if (ParamsRef.GamePhysics)
+            RemoveOwnedChainDeformation();
+        else
+            RemoveOwnedSpringDeformation();
+
+        _shapeRebasePending = true;
         _chainPoseSettleActive = true;
         _chainPoseSettleMinFrames = Math.Max(2, settleFrames);
         _chainPoseSettleTimeoutFrames = Math.Max(12, settleFrames + 8);
@@ -269,6 +300,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         // newly enabled component. Do not reuse particles from the last time Chain was
         // active; sample the current Spring/Timeline pose and rebuild from it.
         _chainPoseSettleActive = true;
+        _shapeRebasePending = false;
         _chainPoseSettleMinFrames = Math.Max(2, settleFrames);
         _chainPoseSettleTimeoutFrames = Math.Max(12, settleFrames + 8);
         _chainPoseStableFrames = 0;
@@ -336,6 +368,30 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         }
     }
 
+    private void RemoveOwnedSpringDeformation()
+    {
+        for (int i = 0; i < _bones.Count; i++)
+        {
+            FleshBone flesh = _bones[i];
+            if (flesh == null || flesh.Bone == null)
+                continue;
+
+            Vector3 expectedLocal = flesh.BaseLocal + flesh.LastAppliedLocal;
+            if ((flesh.Bone.localPosition - expectedLocal).sqrMagnitude < 0.000001f)
+                flesh.Bone.localPosition = flesh.BaseLocal;
+            else
+                flesh.BaseLocal = flesh.Bone.localPosition;
+
+            if (Quaternion.Angle(flesh.Bone.localRotation, flesh.LastSetRotLocal) < 0.5f)
+                flesh.Bone.localRotation = flesh.AnimatedRotLocal;
+            else
+                flesh.AnimatedRotLocal = flesh.Bone.localRotation;
+
+            flesh.LastSetRotLocal = flesh.Bone.localRotation;
+            FleshStateReset.Spring(flesh, flesh.Bone.localPosition);
+        }
+    }
+
     private void CapturePoseSample()
     {
         for (int i = 0; i < _bones.Count; i++)
@@ -356,10 +412,10 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         {
             return false;
         }
-        if (ParamsRef == null || !ParamsRef.GamePhysics)
+        if (ParamsRef == null)
         {
             _chainPoseSettleActive = false;
-            ResetState();
+            _shapeRebasePending = false;
             return false;
         }
 
@@ -387,6 +443,21 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         if ((_chainPoseSettleMinFrames <= 0 && _chainPoseStableFrames >= 2) ||
             _chainPoseSettleTimeoutFrames <= 0)
         {
+            if (_shapeRebasePending)
+            {
+                // A body-shape edit is a legitimate new rest pose, not drift.
+                for (int i = 0; i < _bones.Count; i++)
+                {
+                    FleshBone bone = _bones[i];
+                    if (bone == null || bone.Bone == null)
+                        continue;
+                    bone.PristineLocal = bone.Bone.localPosition;
+                    bone.PristineRot = bone.Bone.localRotation;
+                    bone.PristineScale = bone.Bone.localScale;
+                    bone.AnimatedRotLocal = bone.PristineRot;
+                    bone.LastSetRotLocal = bone.PristineRot;
+                }
+            }
             // Build after Timeline's LateUpdate-visible pose has settled. The solver
             // intentionally starts next frame so this capture cannot create a spike.
             BuildChains();
@@ -399,9 +470,12 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                 }
             }
             _chainPoseSettleActive = false;
+            bool shapeRebase = _shapeRebasePending;
+            _shapeRebasePending = false;
             UnityEngine.Debug.Log("SOMA_POSE_REBASE part=" + _partId +
                 " frames=" + _chainPoseSettleElapsedFrames +
-                " reason=" + (_chainPoseStableFrames >= 2 ? "stable" : "timeout"));
+                " reason=" + (shapeRebase ? "body_shape_" : "") +
+                (_chainPoseStableFrames >= 2 ? "stable" : "timeout"));
         }
         return true;
     }
@@ -628,6 +702,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                 // Timeline owns the pose. Spring is independent and remains physically live.
                 RemoveOwnedChainDeformation();
                 _chainPoseSettleActive = false;
+                _shapeRebasePending = false;
                 ResetState();
             }
             else if (ParamsRef.GamePhysics)
@@ -653,6 +728,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
             else
             {
                 _chainPoseSettleActive = false;
+                _shapeRebasePending = false;
                 RemoveOwnedChainDeformation();
                 ResetState();
             }
@@ -1463,7 +1539,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         }
     }
 
-    private static bool PrepareCleanChainBaseFrame(SideChain chain)
+    private bool PrepareCleanChainBaseFrame(SideChain chain)
     {
         bool resetRequired = false;
         for (int i = 0; i < chain.Particles.Count; i++)
@@ -1482,6 +1558,19 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                     FleshSolverMath.ChainTeleportDistance)
                 {
                     resetRequired = true;
+                }
+                if (_partId == FleshPartId.Belly)
+                {
+                    Vector3 safeLocal = FleshSolverMath.ClampBellyBase(
+                        particle.SafeBaseLocal, incomingLocal);
+                    if ((safeLocal - incomingLocal).sqrMagnitude > 0.00000001f)
+                    {
+                        // Write the guarded value before re-anchoring so the reset
+                        // cannot capture the unsafe incoming position again.
+                        incomingLocal = safeLocal;
+                        particle.Bone.localPosition = safeLocal;
+                        resetRequired = true;
+                    }
                 }
                 particle.BaseLocal = incomingLocal;
             }
@@ -1612,6 +1701,11 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         else
         {
             particle.Bone.localPosition = parent.InverseTransformPoint(worldBase + worldDelta);
+        }
+        if (_partId == FleshPartId.Belly)
+        {
+            particle.Bone.localPosition = FleshSolverMath.ClampBellyLocal(
+                particle.SafeBaseLocal, particle.Bone.localPosition);
         }
         if (IsNan(particle.Bone.localPosition) || IsBadQuat(particle.Bone.localRotation))
         {

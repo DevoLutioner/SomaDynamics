@@ -1,4 +1,4 @@
-# Soma Dynamics｜形体动力学控制器 v1.0.3.5
+# Soma Dynamics｜形体动力学控制器 v1.0.3.6
 
 Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管理大腿、手臂、
 腹部、胸部和臀部。界面以少量感知参数为主，同时保留逐骨高级调节。
@@ -6,7 +6,7 @@ Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管�
 内部 GUID、DLL、安装目录和角色卡数据键继续沿用 `ThighPhysicsController`，以兼容旧卡、
 配置和现有安装。
 
-## 1.0 至 1.0.3.5 修复总览
+## 1.0 至 1.0.3.6 修复总览
 
 | 版本 | 用户可见修复 |
 | --- | --- |
@@ -24,6 +24,7 @@ Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管�
 | 1.0.3.3 | 内置高档精确采用 MyPreset1；兼容 PushUp 胸型重算，并在体型刷新后重建 Soma 基准，修复拖动滑条导致四肢/身体变形。 |
 | 1.0.3.4 | 修正 PushUp 协调：不再重采手臂/腹部，也不再用 setPtn 撤回胸型；只原位回写胸链物理字段。 |
 | 1.0.3.5 | 按反编译的 BPC 提交流程补回胸链 ReSetup，并在 PushUp 写完整组胸型后只提交胸部基准。 |
+| 1.0.3.6 | PushUp 体型刷新改为稳定两帧后重采，物理暂停期间不再误驱动手臂/小腹；延迟胸臀刷新与全身求解器彻底分离；腹部 Chain 增加 2 cm 基准与 4.5 cm 最终位移硬保护。 |
 
 完整逐项记录见 [`CHANGELOG.md`](CHANGELOG.md)。
 
@@ -32,8 +33,8 @@ Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管�
 - 大腿、手臂、腹部：使用 Soma Dynamics 的 `Spring` 或 `Chain`，三个部位可自由组合。
 - 胸部、臀部：使用游戏原生 `DynamicBone_Ver02` 碰撞链，由插件统一管理参数。
 - 胸臀实验性独立 Spring 已根据实机结果完整移除；不会隐藏入口、保留双解算或写入无效字段。
-- 胸臀实时应用不调用 `SetWeight` 或直接重置粒子位置；胸部只在整套参数/PushUp 胸型提交
-  完成后调用一次游戏原生 `ReSetupDynamicBoneBust`，与 BPC 的提交顺序一致。
+- 胸臀实时应用不调用 `SetWeight` 或直接重置粒子位置；PushUp 体型先由游戏完成骨架刷新，
+  稳定后再单独重套原生胸链参数，不会调用手臂或腹部求解器。
 
 ## 安装
 
@@ -133,7 +134,7 @@ BPC 开发术语。完成迁移后，不需要同时启用以下旧插件：
 
 ## 兼容与数据版本
 
-- 插件版本：`1.0.3.5`
+- 插件版本：`1.0.3.6`
 - 卡片数据版本：`61`
 - XML 版本：`4`
 - GUID：`codex.koikatumanager.thighphysicscontroller`
@@ -151,6 +152,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-ThighPhysicsCo
 
 正式构建会运行参数模型测试、胸臀实时应用安全契约、品牌/UI 字符串烟测，并生成：
 
-- `packaging\SomaDynamics_1.0.3.5\`
-- `packaging\SomaDynamics_1.0.3.5.zip`
-- `packaging\SomaDynamics_1.0.3.5.zip.sha256`
+- `packaging\SomaDynamics_1.0.3.6\`
+- `packaging\SomaDynamics_1.0.3.6.zip`
+- `packaging\SomaDynamics_1.0.3.6.zip.sha256`
