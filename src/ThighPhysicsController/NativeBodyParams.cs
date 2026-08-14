@@ -241,6 +241,16 @@ public sealed class NativeBustProfile
         }
     }
 
+    public void SetGravityAll(float gravity)
+    {
+        Naked.Gravity = gravity;
+        for (int i = 0; i < 7; i++)
+        {
+            Bra[i].Gravity = gravity;
+            Tops[i].Gravity = gravity;
+        }
+    }
+
     private static void SetSelectedTargets(NativeBodyParams value, float strength,
         float softness, float motion, bool setStrength, bool setSoftness, bool setMotion)
     {
@@ -389,8 +399,8 @@ internal static class NativeBodyTuning
                 value.MotionResponse = 0.40f;
                 break;
             case FleshFeelPreset.Dance:
-                value.Strength = part == FleshPartId.Breast ? 0.60f : 0.82f;
-                value.Softness = 0.95f;
+                value.Strength = part == FleshPartId.Breast ? 0.95f : 1.20f;
+                value.Softness = part == FleshPartId.Breast ? 0.90f : 1.20f;
                 value.MotionResponse = part == FleshPartId.Breast ? 0.78f : 0.75f;
                 break;
             default:

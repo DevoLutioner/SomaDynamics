@@ -1,4 +1,4 @@
-# Soma Dynamics｜形体动力学控制器 v1.0.3.1
+# Soma Dynamics｜形体动力学控制器 v1.0.3.5
 
 Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管理大腿、手臂、
 腹部、胸部和臀部。界面以少量感知参数为主，同时保留逐骨高级调节。
@@ -6,7 +6,7 @@ Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管�
 内部 GUID、DLL、安装目录和角色卡数据键继续沿用 `ThighPhysicsController`，以兼容旧卡、
 配置和现有安装。
 
-## 1.0 至 1.0.3.1 修复总览
+## 1.0 至 1.0.3.5 修复总览
 
 | 版本 | 用户可见修复 |
 | --- | --- |
@@ -20,6 +20,10 @@ Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管�
 | 1.0.2.7 | 面板新增按需 Timeline 安全弹簧开关；播放时 Chain 临时使用 Spring，暂停/停止自动恢复，不改角色卡模式。 |
 | 1.0.3.0 | 预设一键保存/应用与默认预设自动套用；五部位默认启用开关（可全局覆盖）；Timeline 弹簧三档（关闭/手动/自动）与自定义快捷键。 |
 | 1.0.3.1 | 默认开关修复（不再被 Force enable 覆盖）+ 中档 Thigh02 封顶；弹簧旋转采纳（自由H 不再扭曲）；检测到自由H 自动全部位切弹簧、退出恢复；面板一键【全部弹簧/全部链式】。 |
+| 1.0.3.2 | 修复 1.0.3.1 自由H兜底检测在普通场景每帧执行全场景对象扫描造成的严重掉帧；改为场景加载/切换后仅扫描一次并缓存。 |
+| 1.0.3.3 | 内置高档精确采用 MyPreset1；兼容 PushUp 胸型重算，并在体型刷新后重建 Soma 基准，修复拖动滑条导致四肢/身体变形。 |
+| 1.0.3.4 | 修正 PushUp 协调：不再重采手臂/腹部，也不再用 setPtn 撤回胸型；只原位回写胸链物理字段。 |
+| 1.0.3.5 | 按反编译的 BPC 提交流程补回胸链 ReSetup，并在 PushUp 写完整组胸型后只提交胸部基准。 |
 
 完整逐项记录见 [`CHANGELOG.md`](CHANGELOG.md)。
 
@@ -28,8 +32,8 @@ Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管�
 - 大腿、手臂、腹部：使用 Soma Dynamics 的 `Spring` 或 `Chain`，三个部位可自由组合。
 - 胸部、臀部：使用游戏原生 `DynamicBone_Ver02` 碰撞链，由插件统一管理参数。
 - 胸臀实验性独立 Spring 已根据实机结果完整移除；不会隐藏入口、保留双解算或写入无效字段。
-- 胸臀实时应用不会调用 `ReSetupDynamicBoneBust`、`SetWeight` 或粒子位置重置，避免碰撞后
-  二次激振。
+- 胸臀实时应用不调用 `SetWeight` 或直接重置粒子位置；胸部只在整套参数/PushUp 胸型提交
+  完成后调用一次游戏原生 `ReSetupDynamicBoneBust`，与 BPC 的提交顺序一致。
 
 ## 安装
 
@@ -57,12 +61,9 @@ Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管�
 
 三项范围均为 `0–2`：`0–1` 是常用区，`1–2` 是受安全限幅保护的增强区。
 
-`低 / 中 / 高` 不改写各部位的求解模式，并同步调整 Spring 与 Chain 两套逐骨 Amp：
-中档逐骨 Amp 采用作者常用 `MyPreset`，低档为该基准的 0.75 倍，高档统一为
-1.30 倍；大腿 `Thigh02 Amp` 是防塌陷例外，中档封顶、高档固定均为
-`0.50`（Spring 与 Chain 同规则），其余骨中档保持 `MyPreset` 原值。
-胸部中/高档 `摆动强度 Swing` 分别封顶 `0.50 / 0.60`，避免碰撞链被过度激发。三档同时调整强度、
-柔软度与运动响应，避免中高档仅因参数饱和而体感接近。
+`低 / 中 / 高` 不改写各部位的求解模式。中档逐骨 Amp 采用原有 `MyPreset` 基准，低档为
+该基准的 0.75 倍；高档则精确采用 `MyPreset1.xml` 中 Spring/Chain 两套参数、逐骨 Amp
+和轴向值，胸部/臀部三项目标也使用同一预设中的数值。
 因此应用任意档位后，仍可独立组合三个部位的 Spring / Chain，且档位
 差异不会在切换模式后丢失。
 
@@ -132,7 +133,7 @@ BPC 开发术语。完成迁移后，不需要同时启用以下旧插件：
 
 ## 兼容与数据版本
 
-- 插件版本：`1.0.3.1`
+- 插件版本：`1.0.3.5`
 - 卡片数据版本：`61`
 - XML 版本：`4`
 - GUID：`codex.koikatumanager.thighphysicscontroller`
@@ -150,6 +151,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-ThighPhysicsCo
 
 正式构建会运行参数模型测试、胸臀实时应用安全契约、品牌/UI 字符串烟测，并生成：
 
-- `packaging\SomaDynamics_1.0.3.1\`
-- `packaging\SomaDynamics_1.0.3.1.zip`
-- `packaging\SomaDynamics_1.0.3.1.zip.sha256`
+- `packaging\SomaDynamics_1.0.3.5\`
+- `packaging\SomaDynamics_1.0.3.5.zip`
+- `packaging\SomaDynamics_1.0.3.5.zip.sha256`

@@ -152,11 +152,8 @@ internal static class FleshTuning
                 motion = 0.30f;
                 break;
             case FleshFeelPreset.Dance:
-                strength = part == FleshPartId.Thigh ? 1.08f :
-                    part == FleshPartId.Arm ? 0.95f : 0.90f;
-                softness = 1.10f;
-                motion = part == FleshPartId.Belly ? 0.60f : 0.65f;
-                break;
+                ApplyUserHighSnapshot(p, part);
+                return p;
             default:
                 strength = part == FleshPartId.Thigh ? 0.92f :
                     part == FleshPartId.Arm ? 0.80f : 0.78f;
@@ -167,6 +164,68 @@ internal static class FleshTuning
         ApplyLevelTargets(p, part, strength, softness, motion);
         ApplyLevelAmplitudes(p, part, preset);
         return p;
+    }
+
+    /// <summary>
+    /// Exact built-in High snapshot from the user's MyPreset1.xml. Both solver
+    /// parameter sets are populated so selecting High remains mode-independent.
+    /// </summary>
+    private static void ApplyUserHighSnapshot(ThighParams p, FleshPartId part)
+    {
+        p.GamePhysics = true;
+        p.Gravity = 0.05f;
+        p.Weight = part == FleshPartId.Thigh ? 1.08f :
+            part == FleshPartId.Arm ? 0.95f : 0.90f;
+        p.MotionGain = part == FleshPartId.Belly ? 3.00f : 3.25f;
+        p.JitterFreq = 0.575f;
+        p.MotionSmooth = 0.143f;
+
+        p.Thigh00.Damping = 0.094f;
+        p.Thigh00.Elasticity = 0.0475f;
+        p.Thigh00.Stiffness = 0.0375f;
+        p.Thigh00.Inert = part == FleshPartId.Belly ? 0.645f : 0.735f;
+
+        p.Chain.Weight = 1.00f;
+        p.Chain.Gravity = 0.05f;
+        p.Chain.Damping = part == FleshPartId.Thigh ? 0.04f :
+            part == FleshPartId.Arm ? 0.05f : 0.12f;
+        p.Chain.Elasticity = part == FleshPartId.Thigh ? 0.05f :
+            part == FleshPartId.Arm ? 0.25f : 0.12f;
+        p.Chain.Stiffness = part == FleshPartId.Thigh ? 0.85f :
+            part == FleshPartId.Arm ? 0.90f : 0.88f;
+        p.Chain.Inert = part == FleshPartId.Belly ? 0.65f : 0.80f;
+        p.Chain.JitterFreq = part == FleshPartId.Thigh ? 2.00f :
+            part == FleshPartId.Arm ? 0.15f : 0.50f;
+
+        float[] spring = part == FleshPartId.Thigh
+            ? new[] { 1.3000f, 0.5000f, 0.2340f, 0.0390f }
+            : part == FleshPartId.Arm
+                ? new[] { 1.8386f, 0.2340f, 0.1404f, 0.0234f }
+                : new[] { 1.5414f, 0.0975f, 0.0585f, 0.0097f };
+        float[] chain = part == FleshPartId.Thigh
+            ? new[] { 1.9500f, 0.5000f, 0.3500f, 0.4500f }
+            : part == FleshPartId.Arm
+                ? new[] { 1.0400f, 0.7800f, 0.7800f, 0.0936f }
+                : new[] { 1.3000f, 0.2600f, 0.1625f, 0.0390f };
+        for (int i = 0; i < 4; i++)
+        {
+            PerBoneAmount springBone = p.Bones.Get(i);
+            springBone.Enabled = true;
+            springBone.Amp = spring[i];
+            springBone.AxisX = 1f;
+            springBone.AxisY = part == FleshPartId.Thigh ? 0f : 1f;
+            springBone.AxisZ = 1f;
+            springBone.RotAmp = 0.25f;
+            springBone.RotCalc = true;
+
+            PerBoneAmount chainBone = p.ChainBones.Get(i);
+            chainBone.Enabled = true;
+            chainBone.Amp = chain[i];
+            chainBone.AxisX = 1f;
+            chainBone.AxisY = 1f;
+            chainBone.AxisZ = 1f;
+            chainBone.RotCalc = true;
+        }
     }
 
     /// <summary>Writes the same user-level target into both solver parameter sets.</summary>
