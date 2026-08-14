@@ -290,7 +290,6 @@ internal static class Program
         FleshPartId[] parts = { FleshPartId.Thigh, FleshPartId.Arm, FleshPartId.Belly };
         float[] stableStrength = { 0.78f, 0.68f, 0.65f };
         float[] naturalStrength = { 0.92f, 0.80f, 0.78f };
-        float[] danceStrength = { 1.08f, 0.95f, 0.90f };
         float[] danceMotion = { 0.65f, 0.65f, 0.60f };
         float[][] springBase =
         {
@@ -303,6 +302,18 @@ internal static class Program
             new[] { 1.50f, 1.20f, 0.30f, 0.80f },
             new[] { 0.80f, 0.60f, 0.60f, 0.072f },
             new[] { 1.00f, 0.20f, 0.125f, 0.03f }
+        };
+        float[][] highSpring =
+        {
+            new[] { 1.3000f, 0.5000f, 0.2340f, 0.0390f },
+            new[] { 1.8386f, 0.2340f, 0.1404f, 0.0234f },
+            new[] { 1.5414f, 0.0975f, 0.0585f, 0.0097f }
+        };
+        float[][] highChain =
+        {
+            new[] { 1.9500f, 0.5000f, 0.3500f, 0.4500f },
+            new[] { 1.0400f, 0.7800f, 0.7800f, 0.0936f },
+            new[] { 1.3000f, 0.2600f, 0.1625f, 0.0390f }
         };
 
         for (int i = 0; i < parts.Length; i++)
@@ -321,10 +332,23 @@ internal static class Program
                 parts[i] + " natural softness");
             Near(naturalStrength[i], FleshTuning.GetStrength(natural), parts[i] + " natural strength");
             Near(0.45f, FleshTuning.GetMotionTarget(natural), parts[i] + " natural motion target");
-            Near(1.10f, FleshTuning.GetSoftness(dance, parts[i]), parts[i] + " dance softness");
-            Near(danceStrength[i], FleshTuning.GetStrength(dance), parts[i] + " dance strength");
+            Near(1.00f, FleshTuning.GetSoftness(dance, parts[i]), parts[i] + " high chain softness");
+            Near(1.00f, FleshTuning.GetStrength(dance), parts[i] + " high chain strength");
             Near(danceMotion[i],
                 FleshTuning.GetMotionTarget(dance), parts[i] + " dance motion target");
+            Near(parts[i] == FleshPartId.Thigh ? 1.08f :
+                parts[i] == FleshPartId.Arm ? 0.95f : 0.90f,
+                dance.Weight, parts[i] + " MyPreset1 spring weight");
+            Near(0.094f, dance.Thigh00.Damping, parts[i] + " MyPreset1 spring damping");
+            Near(0.0475f, dance.Thigh00.Elasticity, parts[i] + " MyPreset1 spring elasticity");
+            Near(0.0375f, dance.Thigh00.Stiffness, parts[i] + " MyPreset1 spring stiffness");
+            Near(parts[i] == FleshPartId.Belly ? 0.645f : 0.735f,
+                dance.Thigh00.Inert, parts[i] + " MyPreset1 spring inert");
+            Near(parts[i] == FleshPartId.Thigh ? 2.00f :
+                parts[i] == FleshPartId.Arm ? 0.15f : 0.50f,
+                dance.Chain.JitterFreq, parts[i] + " MyPreset1 chain frequency");
+            Near(0.575f, dance.JitterFreq, parts[i] + " MyPreset1 spring frequency");
+            Near(0.143f, dance.MotionSmooth, parts[i] + " MyPreset1 motion smoothing");
 
             for (int bone = 0; bone < 4; bone++)
             {
@@ -334,11 +358,7 @@ internal static class Program
                 Near(springBase[i][bone],
                     natural.Bones.Get(bone).Amp,
                     parts[i] + " medium spring amp " + bone);
-                float highSpringAmp = parts[i] == FleshPartId.Thigh && bone == 1
-                    ? 0.50f : springBase[i][bone] * 1.30f;
-                float highChainAmp = parts[i] == FleshPartId.Thigh && bone == 1
-                    ? 0.50f : chainBase[i][bone] * 1.30f;
-                Near(highSpringAmp,
+                Near(highSpring[i][bone],
                     dance.Bones.Get(bone).Amp,
                     parts[i] + " high spring amp " + bone);
                 Near(chainBase[i][bone] * 0.75f,
@@ -349,23 +369,21 @@ internal static class Program
                 Near(mediumChainAmp,
                     natural.ChainBones.Get(bone).Amp,
                     parts[i] + " medium chain amp " + bone);
-                Near(highChainAmp,
+                Near(highChain[i][bone],
                     dance.ChainBones.Get(bone).Amp,
                     parts[i] + " high chain amp " + bone);
-                if (parts[i] != FleshPartId.Thigh || bone != 1)
-                {
-                    True(stable.Bones.Get(bone).Amp < natural.Bones.Get(bone).Amp &&
-                         natural.Bones.Get(bone).Amp < dance.Bones.Get(bone).Amp,
-                        parts[i] + " spring amp level monotonic " + bone);
-                    True(stable.ChainBones.Get(bone).Amp <
-                             natural.ChainBones.Get(bone).Amp &&
-                         natural.ChainBones.Get(bone).Amp <
-                             dance.ChainBones.Get(bone).Amp,
-                        parts[i] + " chain amp level monotonic " + bone);
-                }
+                Near(1f, dance.Bones.Get(bone).AxisX,
+                    parts[i] + " high spring axis X " + bone);
+                Near(parts[i] == FleshPartId.Thigh ? 0f : 1f,
+                    dance.Bones.Get(bone).AxisY,
+                    parts[i] + " high spring axis Y " + bone);
+                Near(1f, dance.Bones.Get(bone).AxisZ,
+                    parts[i] + " high spring axis Z " + bone);
+                True(dance.Bones.Get(bone).RotCalc && dance.ChainBones.Get(bone).RotCalc,
+                    parts[i] + " high rotation calculation " + bone);
             }
 
-            foreach (ThighParams level in new[] { stable, natural, dance })
+            foreach (ThighParams level in new[] { stable, natural })
             {
                 float expectedStrength = FleshTuning.GetStrength(level);
                 float expectedSoftness = FleshTuning.GetSoftness(level, parts[i]);
@@ -391,13 +409,14 @@ internal static class Program
             FleshPartId.Butt, FleshFeelPreset.Dance);
         Near(0.40f, breastLow.Strength, "breast low strength");
         Near(0.50f, breastMedium.Strength, "breast medium strength capped for collision safety");
-        Near(0.60f, breastHigh.Strength, "breast high strength capped for collision safety");
+        Near(0.95f, breastHigh.Strength, "breast high MyPreset1 strength");
         Near(0.38f, buttLow.Strength, "butt low strength");
         Near(0.58f, buttMedium.Strength, "butt medium strength");
-        Near(0.82f, buttHigh.Strength, "butt high strength");
+        Near(1.20f, buttHigh.Strength, "butt high MyPreset1 strength");
         Near(0.50f, breastLow.Softness, "native low softness");
         Near(0.75f, breastMedium.Softness, "native medium softness");
-        Near(0.95f, breastHigh.Softness, "native high softness");
+        Near(0.90f, breastHigh.Softness, "breast high MyPreset1 softness");
+        Near(1.20f, buttHigh.Softness, "butt high MyPreset1 softness");
         Near(0.40f, buttLow.MotionResponse, "native low motion");
         Near(0.60f, buttMedium.MotionResponse, "native medium motion");
         Near(0.75f, buttHigh.MotionResponse, "native high motion");

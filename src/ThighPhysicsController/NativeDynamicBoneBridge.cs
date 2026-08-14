@@ -33,6 +33,10 @@ internal sealed class NativeDynamicBoneBridge
             firstKind);
         ApplyTarget(_control.getDynamicBoneBust((ChaInfo.DynamicBoneKind)(firstKind + 1)), part,
             value, firstKind + 1);
+        // Match BPC's commit order: write both breast tables first, then capture
+        // the currently displayed shape as the DynamicBone baseline once.
+        if (part == FleshPartId.Breast)
+            _control.ReSetupDynamicBoneBust(0);
     }
 
     internal void RestoreAll()
@@ -102,8 +106,8 @@ internal sealed class NativeDynamicBoneBridge
             ApplySpec(parameter, spec, value);
             matched++;
         }
-        // Match BPC exactly: after editing named parameters, copy the entire table
-        // to the live particle pattern before selecting pattern zero.
+        // Match BPC exactly: copy the edited table to ParticlePtn and select it.
+        // Apply() performs the baseline refresh after both sides are committed.
         for (int i = 0; i < pattern.Params.Count && i < pattern.ParticlePtns.Count; i++)
             CopyToParticlePattern(pattern.Params[i], pattern.ParticlePtns[i]);
         target.setPtn(0, true);

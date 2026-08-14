@@ -17,6 +17,9 @@ internal static class HSceneBridge
     private static Type _freeHSceneType;
     private static Type _hSceneProcType;
     private static Type _hSpriteType;
+    private static bool _sceneHooksInstalled;
+    private static bool _fallbackScanNeeded = true;
+    private static bool _fallbackActive;
     private static int _cachedFrame = -1;
     private static bool _cachedActive;
     private static bool _lastActive;
@@ -25,6 +28,7 @@ internal static class HSceneBridge
 
     public static bool IsFreeHActive()
     {
+        EnsureSceneHooks();
         if (Time.frameCount == _cachedFrame)
         {
             return _cachedActive;
@@ -49,6 +53,7 @@ internal static class HSceneBridge
             if (sceneName != _lastSceneName)
             {
                 _lastSceneName = sceneName;
+                _fallbackScanNeeded = true;
                 UnityEngine.Debug.Log("SOMA_HSCENE_DETECT scene changed to=" + sceneName);
             }
             if (sceneName == "H" || sceneName == "HProc" || sceneName == "FreeH" ||
@@ -69,22 +74,57 @@ internal static class HSceneBridge
             _hSceneProcType = Type.GetType("HSceneProc, Assembly-CSharp", false);
             _hSpriteType = Type.GetType("HSprite, Assembly-CSharp", false);
         }
+        if (!_fallbackScanNeeded)
+        {
+            return _fallbackActive;
+        }
+        // FindObjectOfType traverses the loaded scene and is prohibitively expensive
+        // in Update. Only run the reflection fallback after a scene lifecycle event,
+        // then reuse the result until another scene is loaded or made active.
+        _fallbackScanNeeded = false;
         try
         {
-            if ((_freeHSceneType != null &&
+            _fallbackActive =
+                (_freeHSceneType != null &&
                  UnityEngine.Object.FindObjectOfType(_freeHSceneType) != null) ||
                 (_hSceneProcType != null &&
                  UnityEngine.Object.FindObjectOfType(_hSceneProcType) != null) ||
                 (_hSpriteType != null &&
-                 UnityEngine.Object.FindObjectOfType(_hSpriteType) != null))
-            {
-                return true;
-            }
+                 UnityEngine.Object.FindObjectOfType(_hSpriteType) != null);
         }
         catch
         {
-            return false;
+            _fallbackActive = false;
         }
-        return false;
+        return _fallbackActive;
+    }
+
+    private static void EnsureSceneHooks()
+    {
+        if (_sceneHooksInstalled)
+        {
+            return;
+        }
+        _sceneHooksInstalled = true;
+        UnityEngine.SceneManagement.SceneManager.sceneLoaded += OnSceneLoaded;
+        UnityEngine.SceneManagement.SceneManager.activeSceneChanged += OnActiveSceneChanged;
+    }
+
+    private static void OnSceneLoaded(UnityEngine.SceneManagement.Scene scene,
+        UnityEngine.SceneManagement.LoadSceneMode mode)
+    {
+        InvalidateFallback();
+    }
+
+    private static void OnActiveSceneChanged(UnityEngine.SceneManagement.Scene previous,
+        UnityEngine.SceneManagement.Scene current)
+    {
+        InvalidateFallback();
+    }
+
+    private static void InvalidateFallback()
+    {
+        _fallbackScanNeeded = true;
+        _cachedFrame = -1;
     }
 }

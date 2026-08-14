@@ -1,5 +1,40 @@
 # 更新日志（CHANGELOG）
 
+## 1.0.3.5（2026-08-14）
+
+- 反编译并逐项对照 BPC 1.x、PushUp 1.5.2 与游戏本体胸链流程，补回 BPC 在左右胸参数
+  写完后的 `ReSetupDynamicBoneBust(0)` 提交步骤。
+- 恢复 BPC 的 `BustSoft.ReCalc` / `BustGravity.ReCalc` 防覆盖方式；PushUp 改变卡片柔软度和
+  重力时不再触发 Soma 下一帧重套全身，避免手臂与腹部跟着滑条错误重采样。
+- 可选检测 PushUp，并在 `MapBodyInfoToChaFile` 完整写完 4–13 号胸型参数后只刷新胸部
+  DynamicBone 基准，保留胸托形状和 Soma 胸部物理。
+
+## 1.0.3.4（2026-08-14）
+
+- 修正 1.0.3.3 的 PushUp 兼容方向：撤销对每次 `SetShapeBodyValue` 的大腿、手臂、腹部
+  全局重采，避免把胸型刷新期间的临时肢体位置固化。
+- Soma 在 PushUp 的胸部重算后只原位更新当前胸链粒子的物理字段，不再调用 `setPtn`；
+  后者会重装粒子的初始位置、旋转、缩放与引用，从而撤回 PushUp 刚写入的胸型。
+- 对照原 BPC 确认其没有专用 PushUp 桥接；关键差异是 BPC 不会在每次 PushUp 滑条事件后
+  重复执行 `setPtn`。
+
+## 1.0.3.3（2026-08-14）
+
+- 内置“高”档改为用户 `MyPreset1.xml` 的精确快照：大腿、手臂、腹部的 Spring/Chain
+  参数和逐骨振幅，以及胸部/臀部强度、柔软度、动作响应都按该预设写入；应用时仍保留
+  当前启用状态和 Spring/Chain 模式。
+- 修复 BPC 迁移遗留的 PushUp 兼容问题：不再阻止 `BustSoft.ReCalc` / `BustGravity.ReCalc`，
+  允许 PushUp 完成胸型刷新后由 Soma 下一帧回写原生胸部物理参数。
+- PushUp 拖动体型滑条触发 `SetShapeBodyValue` 时，Soma 会将刷新后的骨骼位置重新采为干净
+  基准并清除旧速度，避免把体型重建误判为猛烈运动而拉坏四肢或身体链。
+
+## 1.0.3.2（2026-08-14）
+
+- 修复 1.0.3.1 的严重性能回归：自由 H 兜底检测不再于普通游戏、Maker 或 Studio
+  的每一帧执行三次 `FindObjectOfType` 全场景扫描。
+- H 场景名快速判断保持不变；反射兜底仅在场景加载或活动场景切换后执行一次并缓存，
+  继续支持 MyRoom/加法加载流程，同时消除复杂 Studio 场景中的持续 CPU 开销。
+
 ## 1.0.3.1（2026-08-14）
 
 - 修复「默认值 Defaults」开关被 `Force enable`（默认开启）在加载时覆盖、点了不生效

@@ -120,10 +120,10 @@ MMD DynamicBone stabilization active
 | --- | --- | --- |
 | 低 | 静态展示、轻动作、贴身服装 | 保留肉感，但减少拖尾和碰撞放大 |
 | 中 | 日常通用、初次安装 | 采用作者常用 `MyPreset` Amp，平衡清晰度和稳定性 |
-| 高 | 幅度较大的 MMD、需要明显肉感 | 提高整体响应，并保留防抖与位移安全限制 |
+| 高 | 幅度较大的 MMD、需要明显肉感 | 精确采用 MyPreset1 的五部位参数，同时保留当前求解模式 |
 
-胸部摆动强度经过碰撞实测限制：中档不超过 `0.50`，高档不超过 `0.60`。只有高档大腿
-`Thigh02 Amp` 使用 `0.50` 的防塌陷值；中档保持 `MyPreset` 原值。
+中档沿用原有安全基线；高档精确采用 `MyPreset1.xml`，包括胸部 `0.95 / 0.90 / 0.78`、
+臀部 `1.20 / 1.20 / 0.75`，以及大腿、手臂、腹部的两套求解器和逐骨参数。
 
 预设不会锁定求解模式。选择中档后仍可把大腿改成 Chain、手臂改成 Spring，或使用任何
 其他组合。预设会同时准备 Spring 与 Chain 的对应参数，因此切换后不会回到另一套旧数值。
@@ -214,6 +214,7 @@ BepInEx/config/codex.koikatu.mmddynamicbonestabilizer.cfg
 | BreastPhysicsController | 不建议 | 与 Soma Dynamics 同时写胸臀链 |
 | BPC Auto Default | 不建议 | 会在加载时再次覆盖胸臀参数 |
 | DisableHipDynamicBones | 不建议 | 会阻止 Soma Dynamics 管理臀部原生链 |
+| PushUp / 胸托 | 是 | 1.0.3.5 起在 PushUp 写完整组胸型后按 BPC 流程只刷新胸部基准，不触碰手臂/腹部 |
 | 旧版 FPC / ThighPhysicsController | 不可重复 | 只保留最新 DLL |
 
 ## 12. 常见问题

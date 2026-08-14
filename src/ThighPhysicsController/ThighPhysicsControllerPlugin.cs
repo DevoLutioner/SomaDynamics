@@ -15,7 +15,7 @@ using UnityEngine;
 namespace ThighPhysicsController;
 
 [BepInDependency("marco.kkapi")]
-[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Soma Dynamics", "1.0.3.1")]
+[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Soma Dynamics", "1.0.3.5")]
 [DefaultExecutionOrder(-1000)]
 public class ThighPhysicsControllerPlugin : BaseUnityPlugin
 {
@@ -68,10 +68,12 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
     private static ManualLogSource _runtimeLog;
     private static bool _loggedBustSoftGuard;
     private static bool _loggedBustGravityGuard;
+    private static bool _loggedPushupBridge;
     private static bool _hSceneActive;
 
     private Harmony _harmony;
     private Harmony _inputHarmony;
+    private bool _pushupBridgeInstalled;
     private void Awake()
     {
         WindowKey = Config.Bind("General", "Window key",
@@ -155,6 +157,48 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         catch (Exception ex)
         {
             Logger.LogWarning("Failed to install FPC Harmony patches: " + ex);
+        }
+    }
+
+    private void Start()
+    {
+        InstallPushupCompatibilityBridge();
+    }
+
+    private void InstallPushupCompatibilityBridge()
+    {
+        if (_pushupBridgeInstalled || _harmony == null)
+            return;
+        Type pushupController = AccessTools.TypeByName("KK_Plugins.Pushup+PushupController") ??
+                                AccessTools.TypeByName("KKS_Plugins.Pushup+PushupController");
+        if (pushupController == null)
+            return;
+        MethodInfo mapped = AccessTools.Method(pushupController, "MapBodyInfoToChaFile");
+        MethodInfo postfix = AccessTools.Method(typeof(ThighPhysicsControllerPlugin),
+            nameof(PushupMapBodyPostfix));
+        if (mapped == null || postfix == null)
+        {
+            Logger.LogWarning("PushUp detected, but its completed body-map method was not found.");
+            return;
+        }
+        _harmony.Patch(mapped, postfix: new HarmonyMethod(postfix));
+        _pushupBridgeInstalled = true;
+        Logger.LogInfo("PushUp completed-body compatibility bridge installed.");
+    }
+
+    private static void PushupMapBodyPostfix(object __instance)
+    {
+        Component component = __instance as Component;
+        if (component == null)
+            return;
+        ThighController controller = component.GetComponent<ThighController>();
+        if (controller == null)
+            return;
+        controller.OnPushupBodyMapped();
+        if (!_loggedPushupBridge)
+        {
+            _loggedPushupBridge = true;
+            _runtimeLog?.LogInfo("FPC_PUSHUP_COMMIT captured completed breast shape baseline.");
         }
     }
 
@@ -1076,21 +1120,36 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
             FleshPartId part = (FleshPartId)i;
             ThighParams current = controller.GetParams(part).Clone();
             ThighParams level = FleshTuning.CreateFeelPreset(part, preset);
-            FleshTuning.ApplyLevelTargets(current, part,
-                FleshTuning.GetStrength(level),
-                FleshTuning.GetSoftness(level, part),
-                FleshTuning.GetMotionTarget(level));
-            FleshTuning.ApplyLevelAmplitudes(current, part, preset);
+            if (preset == FleshFeelPreset.Dance)
+            {
+                // High is an exact MyPreset1 snapshot, but it must not switch the
+                // user's active solver or re-enable a disabled body part.
+                level.Enabled = current.Enabled;
+                level.GamePhysics = current.GamePhysics;
+                current = level;
+            }
+            else
+            {
+                FleshTuning.ApplyLevelTargets(current, part,
+                    FleshTuning.GetStrength(level),
+                    FleshTuning.GetSoftness(level, part),
+                    FleshTuning.GetMotionTarget(level));
+                FleshTuning.ApplyLevelAmplitudes(current, part, preset);
+            }
             controller.SetParams(part, current);
         }
         NativeBodyParams breastLevel = NativeBodyTuning.CreateFeelPreset(
             FleshPartId.Breast, preset);
         controller.BreastProfile.SetTargetsAll(breastLevel.Strength,
             breastLevel.Softness, breastLevel.MotionResponse, true, true, true);
+        if (preset == FleshFeelPreset.Dance)
+            controller.BreastProfile.SetGravityAll(breastLevel.Gravity);
         NativeBodyParams buttLevel = NativeBodyTuning.CreateFeelPreset(FleshPartId.Butt,
             preset);
         NativeBodyTuning.SetTargets(controller.ButtParams, FleshPartId.Butt,
             buttLevel.Strength, buttLevel.Softness, buttLevel.MotionResponse);
+        if (preset == FleshFeelPreset.Dance)
+            controller.ButtParams.Gravity = buttLevel.Gravity;
         controller.RequestNativeReapply(1);
         controller.Apply(resetPosition: false);
         string levelName = preset == FleshFeelPreset.Stable ? "Low" :
@@ -1326,8 +1385,8 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         [HarmonyPrefix]
         private static bool Prefix(BustSoft __instance)
         {
-            // Full BPC behavior: do not let the game's body-shape/collision refresh
-            // overwrite FPC's active custom breast DynamicBone parameters.
+            // PushUp may update the card softness value, but the game must not
+            // overwrite Soma's active DynamicBone table. This is BPC's behavior.
             if (FindBustOwner(__instance) == null)
                 return true;
             if (!_loggedBustSoftGuard)
@@ -1373,4 +1432,5 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
             }
         }
     }
+
 }

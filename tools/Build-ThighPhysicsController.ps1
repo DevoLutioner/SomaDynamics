@@ -2,7 +2,7 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
 
-    [string]$Version = '1.0.3.1',
+    [string]$Version = '1.0.3.5',
 
     [string]$GameRoot = '',
 
@@ -43,6 +43,15 @@ $nativeBridgeText = Get-Content -LiteralPath $nativeBridgeSource -Raw
 if ($pluginText -notmatch '_harmony\.PatchAll\(Assembly\.GetExecutingAssembly\(\)\)') {
     throw 'Native BPC compatibility patches are declared but not registered with Harmony.'
 }
+if ($pluginText -notmatch 'blocked BustSoft\.ReCalc overwrite' -or
+    $pluginText -notmatch 'blocked BustGravity\.ReCalc overwrite' -or
+    $pluginText -notmatch 'FPC_PUSHUP_COMMIT') {
+    throw 'PushUp compatibility must preserve Soma physics and commit the completed breast shape.'
+}
+if ($nativeBridgeText -notmatch '\btarget\.setPtn\s*\(0, true\)' -or
+    $nativeBridgeText -notmatch 'ReSetupDynamicBoneBust\(0\)') {
+    throw 'Native breast apply must use the BPC pattern commit and refresh the completed baseline.'
+}
 if ($nativeBridgeText -match '\btarget\.(SetWeight|ResetParticlesPosition)\s*\(') {
     throw 'Native live-apply path must not change DynamicBone weight or reset colliding particles.'
 }
@@ -52,8 +61,8 @@ if ($applyStart -lt 0 -or $restoreStart -le $applyStart) {
     throw 'Could not isolate NativeDynamicBoneBridge.Apply for safety inspection.'
 }
 $nativeApplyText = $nativeBridgeText.Substring($applyStart, $restoreStart - $applyStart)
-if ($nativeApplyText -match 'ReSetupDynamicBoneBust|ResetPosition|ResetParticlesPosition|SetWeight') {
-    throw 'Native live-apply path must not indirectly reset DynamicBone positions.'
+if ($nativeApplyText -match 'ResetPosition|ResetParticlesPosition|SetWeight') {
+    throw 'Native live-apply path must not directly reset DynamicBone particles or weight.'
 }
 $bodySourceText = (Get-Content -LiteralPath (Join-Path $repoRoot 'src\ThighPhysicsController\NativeBodyParams.cs') -Raw) +
     (Get-Content -LiteralPath (Join-Path $repoRoot 'src\ThighPhysicsController\ThighController.cs') -Raw) +

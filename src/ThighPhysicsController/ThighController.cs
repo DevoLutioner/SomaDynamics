@@ -623,6 +623,15 @@ public sealed class ThighController : CharaCustomFunctionController
         RequestNativeReapply(2);
     }
 
+    internal void OnPushupBodyMapped()
+    {
+        if (ChaControl == null || !GetNativeParams(FleshPartId.Breast).Enabled)
+            return;
+        // PushUp has finished writing its complete 4..13 breast-shape group.
+        // Refresh only the native breast baseline; do not reapply arm/belly/thigh.
+        ChaControl.ReSetupDynamicBoneBust(0);
+    }
+
     internal bool OwnsBustSoft(BustSoft value)
     {
         return ChaControl != null && ChaControl.bustSoft == value &&
