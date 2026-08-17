@@ -620,7 +620,17 @@ public sealed class ThighController : CharaCustomFunctionController
 
     internal void OnClothesStateChanged()
     {
-        RequestNativeReapply(2);
+        // SetClothesState can refresh the character hierarchy even when only an
+        // underwear preview changed. Remove Soma's previous Spring/Chain output,
+        // then capture the settled post-refresh pose as the new rest pose; otherwise
+        // each preview click feeds the prior Chain deformation into the next one.
+        for (int i = 0; i < _flesh.Count; i++)
+        {
+            ThighFleshJiggle jiggle = _flesh[i];
+            if (jiggle != null && jiggle.enabled)
+                jiggle.PrepareForExternalShapeChange(2);
+        }
+        RequestNativeReapply(3);
     }
 
     internal void OnPushupBodyMappingStarted()

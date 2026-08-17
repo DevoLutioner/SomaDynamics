@@ -2,7 +2,7 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
 
-    [string]$Version = '1.0.3.6',
+    [string]$Version = '1.0.3.7',
 
     [string]$GameRoot = '',
 
@@ -74,6 +74,10 @@ if ($pluginText -match 'DebugRegressionMotion|TryDebugLoadScene|UpdateRegression
     throw 'Removed sandbox/runtime motion driver is still present in the plugin.'
 }
 if (-not $SkipTests) {
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'Test-FleshClothesStateRegression.ps1')
+    if ($LASTEXITCODE -ne 0) {
+        throw "Clothes-state regression test failed with exit code $LASTEXITCODE"
+    }
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'Test-FleshParameterModel.ps1')
     if ($LASTEXITCODE -ne 0) {
         throw "Parameter model tests failed with exit code $LASTEXITCODE"
