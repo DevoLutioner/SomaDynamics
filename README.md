@@ -1,4 +1,4 @@
-# Soma Dynamics｜形体动力学控制器 v1.0.3.6
+# Soma Dynamics｜形体动力学控制器 v1.0.3.7
 
 Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管理大腿、手臂、
 腹部、胸部和臀部。界面以少量感知参数为主，同时保留逐骨高级调节。
@@ -6,7 +6,7 @@ Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管�
 内部 GUID、DLL、安装目录和角色卡数据键继续沿用 `ThighPhysicsController`，以兼容旧卡、
 配置和现有安装。
 
-## 1.0 至 1.0.3.6 修复总览
+## 1.0 至 1.0.3.7 修复总览
 
 | 版本 | 用户可见修复 |
 | --- | --- |
@@ -25,6 +25,7 @@ Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管�
 | 1.0.3.4 | 修正 PushUp 协调：不再重采手臂/腹部，也不再用 setPtn 撤回胸型；只原位回写胸链物理字段。 |
 | 1.0.3.5 | 按反编译的 BPC 提交流程补回胸链 ReSetup，并在 PushUp 写完整组胸型后只提交胸部基准。 |
 | 1.0.3.6 | PushUp 体型刷新改为稳定两帧后重采，物理暂停期间不再误驱动手臂/小腹；延迟胸臀刷新与全身求解器彻底分离；腹部 Chain 增加 2 cm 基准与 4.5 cm 最终位移硬保护。 |
+| 1.0.3.7 | 修复 Maker 反复点击 underwear 半脱预览后，Spring/Chain 外部姿态未重采导致腿部逐渐变成罗圈腿的问题。 |
 
 完整逐项记录见 [`CHANGELOG.md`](CHANGELOG.md)。
 
@@ -134,7 +135,7 @@ BPC 开发术语。完成迁移后，不需要同时启用以下旧插件：
 
 ## 兼容与数据版本
 
-- 插件版本：`1.0.3.6`
+- 插件版本：`1.0.3.7`
 - 卡片数据版本：`61`
 - XML 版本：`4`
 - GUID：`codex.koikatumanager.thighphysicscontroller`
@@ -152,6 +153,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-ThighPhysicsCo
 
 正式构建会运行参数模型测试、胸臀实时应用安全契约、品牌/UI 字符串烟测，并生成：
 
-- `packaging\SomaDynamics_1.0.3.6\`
-- `packaging\SomaDynamics_1.0.3.6.zip`
-- `packaging\SomaDynamics_1.0.3.6.zip.sha256`
+- `packaging\SomaDynamics_1.0.3.7\`
+- `packaging\SomaDynamics_1.0.3.7.zip`
+- `packaging\SomaDynamics_1.0.3.7.zip.sha256`

@@ -1,5 +1,5 @@
 param(
-    [string]$SomaVersion = '1.0.3.6',
+    [string]$SomaVersion = '1.0.3.7',
     [string]$StabilizerVersion = '1.2.1',
     [string]$StabilizerRoot = '',
     [switch]$Force

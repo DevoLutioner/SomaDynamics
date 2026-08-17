@@ -1,5 +1,12 @@
 # 更新日志（CHANGELOG）
 
+## 1.0.3.7（2026-08-17）
+
+- 修复 Koikatu Maker 反复点击 underwear 半脱预览后腿部逐渐变成罗圈腿的问题。
+- `ChaControl.SetClothesState` 现在会让启用的 Spring/Chain 部件先撤销 Soma 自身输出，
+  等待服装刷新后的骨架稳定，再把新姿态采为休止基准；原生胸臀重应用也延后到重采窗口之后。
+- 新增服装状态回归门禁，防止外部姿态刷新再次绕过 Spring/Chain 重采逻辑。
+
 ## 1.0.3.6（2026-08-14）
 
 - 修正 1.0.3.5 的 PushUp 桥接时机：PushUp 调用 `SetShapeBodyValue(4..13)` 时，游戏只会
