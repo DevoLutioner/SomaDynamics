@@ -13,6 +13,7 @@
     <Compile Include="..\..\src\ThighPhysicsController\FleshPart.cs" Link="Source\FleshPart.cs" />
     <Compile Include="..\..\src\ThighPhysicsController\FleshParameterRanges.cs" Link="Source\FleshParameterRanges.cs" />
     <Compile Include="..\..\src\ThighPhysicsController\FleshSolverMath.cs" Link="Source\FleshSolverMath.cs" />
+    <Compile Include="..\..\src\ThighPhysicsController\FleshChainSolver.cs" Link="Source\FleshChainSolver.cs" />
     <Compile Include="..\..\src\ThighPhysicsController\FleshSpringSolver.cs" Link="Source\FleshSpringSolver.cs" />
     <Compile Include="..\..\src\ThighPhysicsController\FleshTuning.cs" Link="Source\FleshTuning.cs" />
     <Compile Include="..\..\src\ThighPhysicsController\FleshValue.cs" Link="Source\FleshValue.cs" />

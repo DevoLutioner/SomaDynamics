@@ -34,6 +34,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
     private bool _constraintSafeRotationsLastFrame;
     private bool _metricsEnabledLastFrame;
     private bool _collectMetricsThisFrame;
+    private bool _runtimeStatusLogged;
     private float _retryTimer;
     private bool _chainPoseSettleActive;
     private int _chainPoseSettleMinFrames;
@@ -70,6 +71,7 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         }
         ChaControlRef = control;
         ParamsRef = param;
+        _runtimeStatusLogged = false;
         _lastGamePhysics = param != null && param.GamePhysics;
         _bones.Clear();
         for (int c = 0; c < def.Chains.Length; c++)
@@ -77,17 +79,11 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
             AddChainBones(def.Chains[c], c);
         }
         BuildChains();
-        if (_bones.Count > 0)
-        {
-            UnityEngine.Debug.Log("Flesh physics initialized: bones=" + _bones.Count +
-                      " part=" + def.DisplayName);
-        }
-        else
-        {
-            UnityEngine.Debug.LogWarning("Flesh physics initialized: 0 bones found for " +
-                (control == null ? "(null control)" : control.name) +
-                " part=" + def.DisplayName);
-        }
+        ThighPhysicsControllerPlugin.LogRuntime("SOMA_RUNTIME_INIT part=" + def.DisplayName +
+            " bones=" + _bones.Count +
+            " enabled=" + (param != null && param.Enabled) +
+            " solver=" + (param != null && param.GamePhysics ? "Chain" : "Spring") +
+            " collectMetrics=" + ThighPhysicsControllerPlugin.DebugCollectMetrics.Value);
     }
 
     private void AddChainBones(FleshChainDef chainDef, int chainIndex)
@@ -662,6 +658,15 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
     private void LateUpdate()
     {
         CheckBones();
+        if (!_runtimeStatusLogged && ParamsRef != null)
+        {
+            _runtimeStatusLogged = true;
+            ThighPhysicsControllerPlugin.LogRuntime("SOMA_RUNTIME_STATUS part=" + PartId +
+                " bones=" + _bones.Count +
+                " enabled=" + ParamsRef.Enabled +
+                " solver=" + (ParamsRef.GamePhysics ? "Chain" : "Spring") +
+                " collectMetrics=" + ThighPhysicsControllerPlugin.DebugCollectMetrics.Value);
+        }
         if (_bones.Count == 0 || ParamsRef == null)
         {
             return;
@@ -1141,6 +1146,16 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         float motionTarget = FleshTuning.GetMotionTarget(ParamsRef);
         float motionFollow = FleshSolverMath.MotionFollowFraction(motionTarget);
         float targetRangeScale = FleshSolverMath.TargetRangeScale(weight, motionTarget);
+        float solverDt = FleshChainSolver.NormalizeTimeStep(dt);
+        float velocityRetention = FleshChainSolver.ComputeVelocityRetention(chainParams,
+            solverDt);
+        float segmentAxialStrength = FleshChainSolver.ComputeSegmentAxialStrength(
+            chainParams, solverDt);
+        float segmentLateralStrength = FleshChainSolver.ComputeSegmentLateralStrength(
+            chainParams, solverDt);
+        float segmentStiffness = Mathf.Clamp01(chainParams.Stiffness);
+        float singleParticleReturnStrength = FleshChainSolver.ComputeSingleParticleReturnStrength(
+            chainParams, solverDt);
         Vector3 gravity = new Vector3(0f, -chainParams.Gravity * 0.016f, 0f);
         bool logChain = ThighPhysicsControllerPlugin.DebugLogFlesh.Value &&
                         _chainTime - _chainLogTime >= 2f;
@@ -1253,7 +1268,8 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
             if (chain.Particles.Count == 1)
             {
                 UpdateSingleParticleChain(chain, anchorPos, anchorMove, anchorAngVel,
-                    gravity, weight, motionFollow, targetRangeScale, chainParams, character, dt);
+                    gravity, weight, motionFollow, targetRangeScale, chainParams, character,
+                    solverDt, velocityRetention, singleParticleReturnStrength);
                 continue;
             }
             first.PrevPosition = first.Position;
@@ -1340,11 +1356,12 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
                 // VELOCITY (inertia), so the flesh lags continuously instead of being
                 // dragged rigidly by the anchor.
                 FleshChainSolver.Integrate(particle, anchorPos, anchorMove, anchorAngVel,
-                    gravity, weight, motionFollow, chainParams, dt);
+                    gravity, weight, motionFollow, solverDt, velocityRetention);
                 // Anisotropic spring: hard along the bone axis (no stretching), soft
                 // perpendicular to it (flesh sway). This is what makes it look like
                 // fat swinging instead of a rubber chain wriggling.
-                FleshChainSolver.ApplySegmentReturn(particle, prev, restNow, chainParams, dt);
+                FleshChainSolver.ApplySegmentReturn(particle, prev, restNow,
+                    segmentAxialStrength, segmentLateralStrength, segmentStiffness);
                 // Leash: keep the particle near its skeleton-anchored base, scaled by amp
                 // so the amplitude slider stays meaningful instead of being saturated.
                 float distal = particle.BoneIndex == _distalIndex ? 0.6f : 1f;
@@ -1631,7 +1648,8 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
     private void UpdateSingleParticleChain(SideChain chain, Vector3 anchorPos,
         Vector3 anchorMove, Vector3 anchorAngVel, Vector3 gravity, float weight,
         float motionFollow, float targetRangeScale, ChainParams chainParams,
-        Transform character, float dt)
+        Transform character, float dt, float velocityRetention,
+        float singleParticleReturnStrength)
     {
         ChainParticle particle = chain.Particles[0];
         if (particle == null || particle.Bone == null)
@@ -1676,12 +1694,13 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
             return;
         }
         FleshChainSolver.Integrate(particle, anchorPos, anchorMove, anchorAngVel,
-            gravity, weight, motionFollow, chainParams, dt);
+            gravity, weight, motionFollow, dt, velocityRetention);
         // A one-particle chain has no previous particle/rest segment to supply the
         // multi-particle solver's return force. Pull it toward the animated base here,
         // otherwise gravity pins Belly to its leash and Elasticity/Stiffness/JitterFreq
         // have no effect at all.
-        FleshChainSolver.ApplySingleParticleReturn(particle, worldBase, chainParams, dt);
+        FleshChainSolver.ApplySingleParticleReturn(particle, worldBase,
+            singleParticleReturnStrength);
         Vector3 delta = particle.Position - worldBase;
         float leashLimit = (0.03f + 0.012f * amp) * targetRangeScale;
         FleshChainSolver.ApplyLeash(particle, worldBase, leashLimit);

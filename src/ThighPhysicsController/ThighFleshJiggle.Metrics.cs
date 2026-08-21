@@ -111,7 +111,7 @@ public sealed partial class ThighFleshJiggle
         double allocatedPerFrame = _performanceAllocationSamples == 0
             ? -1d
             : (double)_performanceAllocatedBytes / _performanceAllocationSamples;
-        UnityEngine.Debug.Log("FPC_PERF part=" + FleshPartDef.Get(_partId).DisplayName +
+        ThighPhysicsControllerPlugin.LogRuntime("FPC_PERF part=" + FleshPartDef.Get(_partId).DisplayName +
             " mode=" + mode +
             " seconds=" + _performanceElapsed.ToString("F2") +
             " samples=" + _performanceSamples +
@@ -174,7 +174,7 @@ public sealed partial class ThighFleshJiggle
         double dynamicRms = Math.Sqrt(Math.Max(0d, rms * rms - bias * bias));
         float strength = FleshTuning.GetStrength(ParamsRef);
         float softness = FleshTuning.GetSoftness(ParamsRef, _partId);
-        UnityEngine.Debug.Log("FPC_METRIC part=" + FleshPartDef.Get(_partId).DisplayName +
+        ThighPhysicsControllerPlugin.LogRuntime("FPC_METRIC part=" + FleshPartDef.Get(_partId).DisplayName +
             " mode=" + mode +
             " seconds=" + _metricElapsed.ToString("F2") +
             " samples=" + _metricSamples +

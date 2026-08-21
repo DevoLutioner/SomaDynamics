@@ -15,7 +15,7 @@ using UnityEngine;
 namespace ThighPhysicsController;
 
 [BepInDependency("marco.kkapi")]
-[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Soma Dynamics", "1.0.3.7")]
+[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Soma Dynamics", "1.0.3.8")]
 [DefaultExecutionOrder(-1000)]
 public class ThighPhysicsControllerPlugin : BaseUnityPlugin
 {
@@ -70,6 +70,7 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
     private static bool _loggedBustGravityGuard;
     private static bool _loggedPushupBridge;
     private static bool _hSceneActive;
+    private bool _runtimeTickLogged;
 
     private Harmony _harmony;
     private Harmony _inputHarmony;
@@ -137,6 +138,7 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         _runtimeLog = Logger;
         Logger.LogInfo("Soma Dynamics initialized (autoApply=" + AutoApply.Value +
                        ", forceEnable=" + ForceEnable.Value +
+                       ", collectMetrics=" + DebugCollectMetrics.Value +
                        ", timelineSpringFallback=" + TimelinePlaybackSpringFallback.Value +
                        ", timelineAuto=" + TimelineSpringFallbackAuto.Value +
                        ", defaultPreset=" + (string.IsNullOrEmpty(DefaultPreset.Value)
@@ -288,6 +290,12 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
 
     private void Update()
     {
+        if (!_runtimeTickLogged)
+        {
+            _runtimeTickLogged = true;
+            Logger.LogInfo("SOMA_RUNTIME_TICK controllers=" + Controllers.Count +
+                           " collectMetrics=" + DebugCollectMetrics.Value);
+        }
         KeyboardShortcut shortcut = WindowKey.Value;
         if (shortcut.IsDown())
         {
@@ -368,6 +376,11 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
                 }
             }
         }
+    }
+
+    internal static void LogRuntime(string message)
+    {
+        _runtimeLog?.LogInfo(message);
     }
 
     private void OnDestroy()

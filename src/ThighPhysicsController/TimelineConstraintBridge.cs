@@ -26,6 +26,8 @@ internal static class TimelineConstraintBridge
     private static bool _available;
     private static bool _scanDisabled;
     private static bool _warningLogged;
+    private static int _timelinePlayingFrame = -1;
+    private static bool _timelinePlaying;
     private static PropertyInfo _timelineIsPlaying;
     private static FieldInfo _nodesSelf;
     private static FieldInfo _constraints;
@@ -42,6 +44,13 @@ internal static class TimelineConstraintBridge
     public static bool ShouldYieldChainRotations(Transform characterRoot)
     {
         if (characterRoot == null)
+        {
+            return false;
+        }
+        // The normal game path does not use Timeline. Resolve and read the global
+        // playback flag once per frame, then skip the per-character dictionary and
+        // constraint scan entirely while it is idle.
+        if (!IsTimelinePlaying())
         {
             return false;
         }
@@ -65,21 +74,30 @@ internal static class TimelineConstraintBridge
 
     public static bool IsTimelinePlaying()
     {
+        int frame = Time.frameCount;
+        if (_timelinePlayingFrame == frame)
+        {
+            return _timelinePlaying;
+        }
+
+        _timelinePlayingFrame = frame;
         ResolveMetadata();
         if (_timelineIsPlaying == null)
         {
-            return false;
+            _timelinePlaying = false;
+            return _timelinePlaying;
         }
         try
         {
             object value = _timelineIsPlaying.GetValue(null, null);
-            return value is bool && (bool)value;
+            _timelinePlaying = value is bool && (bool)value;
         }
         catch
         {
             // Timeline may not have completed Awake yet. A later frame can retry.
-            return false;
+            _timelinePlaying = false;
         }
+        return _timelinePlaying;
     }
 
     private static bool Detect(Transform characterRoot)

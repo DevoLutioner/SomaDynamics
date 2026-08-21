@@ -57,10 +57,10 @@ public sealed class ThighParams
             Weight = 0.9f,
             Gravity = 0.05f,
             Damping = 0.04f,
-            Elasticity = 0.05f,
+            Elasticity = 0.08f,
             Stiffness = 0.85f,
             Inert = 0.80f,
-            JitterFreq = 0.20f,
+            JitterFreq = 0.30f,
         };
         p.Bones.SetDefaults();
         p.ChainBones.SetChainDefaults();

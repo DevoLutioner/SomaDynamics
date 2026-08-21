@@ -189,7 +189,7 @@ internal static class FleshTuning
         p.Chain.Gravity = 0.05f;
         p.Chain.Damping = part == FleshPartId.Thigh ? 0.04f :
             part == FleshPartId.Arm ? 0.05f : 0.12f;
-        p.Chain.Elasticity = part == FleshPartId.Thigh ? 0.05f :
+        p.Chain.Elasticity = part == FleshPartId.Thigh ? 0.08f :
             part == FleshPartId.Arm ? 0.25f : 0.12f;
         p.Chain.Stiffness = part == FleshPartId.Thigh ? 0.85f :
             part == FleshPartId.Arm ? 0.90f : 0.88f;
@@ -315,7 +315,7 @@ internal static class FleshTuning
 
     private static float SoftChainElasticity(FleshPartId part)
     {
-        return part == FleshPartId.Thigh ? 0.05f : part == FleshPartId.Arm ? 0.25f : 0.12f;
+        return part == FleshPartId.Thigh ? 0.08f : part == FleshPartId.Arm ? 0.25f : 0.12f;
     }
 
     private static float SoftChainStiffness(FleshPartId part)
@@ -335,6 +335,6 @@ internal static class FleshTuning
 
     private static float SoftChainFrequency(FleshPartId part)
     {
-        return part == FleshPartId.Thigh ? 0.20f : part == FleshPartId.Arm ? 0.15f : 0.50f;
+        return part == FleshPartId.Thigh ? 0.30f : part == FleshPartId.Arm ? 0.15f : 0.50f;
     }
 }

@@ -21,6 +21,7 @@ internal static class Program
             TestFeelPresets();
             TestFiniteValueBoundary();
             TestSolverScalarMath();
+            TestChainFrameScalars();
             TestIndependentObjects();
             TestCardBoundsAndDeadKeys();
             Console.WriteLine("PASS ParameterModel.Tests (" + _assertions + " assertions)");
@@ -36,7 +37,7 @@ internal static class Program
     private static void TestDefaultBaselines()
     {
         Equal(61, ThighParams.DataVersion, "data version");
-        AssertBaseline(FleshPartId.Thigh, 0.90f, 0.04f, 0.05f, 0.85f, 0.80f, 0.20f,
+        AssertBaseline(FleshPartId.Thigh, 0.90f, 0.04f, 0.08f, 0.85f, 0.80f, 0.30f,
             new[] { 1f, 0.8f, 0.3f, 0.3f });
         AssertBaseline(FleshPartId.Arm, 0.70f, 0.05f, 0.25f, 0.90f, 0.80f, 0.15f,
             new[] { 2f, 0.6f, 0.6f, 0.072f });
@@ -508,10 +509,10 @@ internal static class Program
         Near(0.9f, safe.Chain.Weight, "NaN chain weight preserves default");
         Near(0.05f, safe.Chain.Gravity, "infinite chain gravity preserves default");
         Near(0.04f, safe.Chain.Damping, "malformed chain damping preserves default");
-        Near(0.05f, safe.Chain.Elasticity, "NaN chain elasticity preserves default");
+        Near(0.08f, safe.Chain.Elasticity, "NaN chain elasticity preserves default");
         Near(0.85f, safe.Chain.Stiffness, "infinite chain stiffness preserves default");
         Near(0.80f, safe.Chain.Inert, "infinite chain inert preserves default");
-        Near(0.20f, safe.Chain.JitterFreq, "NaN chain frequency preserves default");
+        Near(0.30f, safe.Chain.JitterFreq, "NaN chain frequency preserves default");
         Near(0.18f, safe.Thigh00.Damping, "NaN spring damping preserves default");
         Near(0.10f, safe.Thigh00.Elasticity, "infinite spring elasticity preserves default");
         Near(0.12f, safe.Thigh00.Stiffness, "malformed spring stiffness preserves default");
@@ -647,6 +648,14 @@ internal static class Program
             "maximum motion target preserves world inertia");
         Near(0.05f, FleshSolverMath.MotionFollowFraction(2f),
             "enhanced motion target keeps anti-snap follow floor");
+        Near(0f, FleshSolverMath.ChainReturnResponse(0f),
+            "zero chain frequency still disables return force");
+        Near(0.4472136f, FleshSolverMath.ChainReturnResponse(0.20f),
+            "low chain frequency keeps useful return response");
+        Near(1f, FleshSolverMath.ChainReturnResponse(1f),
+            "reference chain frequency keeps full return response");
+        Near(1f, FleshSolverMath.ChainReturnResponse(2f),
+            "high chain frequency stays inside normalized return response");
         Near(1.35f, FleshSolverMath.TargetRangeScale(1f, 1f),
             "natural target keeps established visible range");
         Near(2f, FleshSolverMath.TargetRangeScale(2f, 2f),
@@ -670,7 +679,7 @@ internal static class Program
 
         ChainParams thigh = ThighParams.CreatePartDefaults(FleshPartId.Thigh).Chain;
         ChainParams belly = ThighParams.CreatePartDefaults(FleshPartId.Belly).Chain;
-        Near(0.0245f, FleshSolverMath.SingleParticleReturnStrength(thigh),
+        Near(0.0794198f, FleshSolverMath.SingleParticleReturnStrength(thigh),
             "thigh scalar return reference");
         Near(0.2775f, FleshSolverMath.SingleParticleReturnStrength(belly),
             "belly scalar return reference");
@@ -711,6 +720,53 @@ internal static class Program
             "spring damping composes at 30 FPS");
         Near(0.8062258f, FleshSpringSolver.VelocityRetention(0.35f, 1f / 120f),
             "spring damping composes at 120 FPS");
+    }
+
+    private static void TestChainFrameScalars()
+    {
+        ThighParams thigh = ThighParams.CreatePartDefaults(FleshPartId.Thigh);
+        ThighParams belly = ThighParams.CreatePartDefaults(FleshPartId.Belly);
+
+        Near(0.96f, FleshChainSolver.ComputeVelocityRetention(thigh.Chain, 1f / 60f),
+            "chain damping retention at 60 FPS");
+        Near(0.9216f, FleshChainSolver.ComputeVelocityRetention(thigh.Chain, 1f / 30f),
+            "chain damping retention at 30 FPS");
+        Near(0.4655642f, FleshChainSolver.ComputeSegmentAxialStrength(thigh.Chain, 1f / 60f),
+            "chain axial strength at 60 FPS");
+        Near(0.0438171f, FleshChainSolver.ComputeSegmentLateralStrength(thigh.Chain, 1f / 60f),
+            "chain lateral strength at 60 FPS");
+        Near(0.2775f, FleshChainSolver.ComputeSingleParticleReturnStrength(
+            belly.Chain, 1f / 60f), "single-particle return at 60 FPS");
+
+        ChainParticle scalarPath = new ChainParticle
+        {
+            Position = new UnityEngine.Vector3(0.01f, 0.02f, 0f),
+            PrevPosition = new UnityEngine.Vector3(0f, 0.02f, 0f),
+            PreviousDt = 1f / 60f,
+            RestLength = 0.1f,
+        };
+        ChainParticle wrapperPath = new ChainParticle
+        {
+            Position = scalarPath.Position,
+            PrevPosition = scalarPath.PrevPosition,
+            PreviousDt = scalarPath.PreviousDt,
+            RestLength = scalarPath.RestLength,
+        };
+        UnityEngine.Vector3 anchor = UnityEngine.Vector3.zero;
+        UnityEngine.Vector3 move = new UnityEngine.Vector3(0.001f, 0f, 0f);
+        UnityEngine.Vector3 angular = new UnityEngine.Vector3(0f, 2f, 0f);
+        UnityEngine.Vector3 gravity = new UnityEngine.Vector3(0f, -0.01f, 0f);
+        float retention = FleshChainSolver.ComputeVelocityRetention(thigh.Chain, 1f / 60f);
+        FleshChainSolver.Integrate(scalarPath, anchor, move, angular, gravity,
+            thigh.Chain.Weight, 0.5f, 1f / 60f, retention);
+        FleshChainSolver.Integrate(wrapperPath, anchor, move, angular, gravity,
+            thigh.Chain.Weight, 0.5f, thigh.Chain, 1f / 60f);
+        Near(wrapperPath.Position.x, scalarPath.Position.x,
+            "cached chain integration preserves x output");
+        Near(wrapperPath.Position.y, scalarPath.Position.y,
+            "cached chain integration preserves y output");
+        Near(wrapperPath.Position.z, scalarPath.Position.z,
+            "cached chain integration preserves z output");
     }
 
     private static void Near(float expected, float actual, string message)
