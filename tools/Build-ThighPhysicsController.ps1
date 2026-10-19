@@ -1,8 +1,8 @@
-param(
+﻿param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
 
-    [string]$Version = '1.0.3.8',
+    [string]$Version = '1.0.3.9',
 
     [string]$GameRoot = '',
 
@@ -86,6 +86,10 @@ if (-not $SkipTests) {
     if ($LASTEXITCODE -ne 0) {
         throw "Parameter model tests failed with exit code $LASTEXITCODE"
     }
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'Test-FleshRuntimeIntegration.ps1')
+    if ($LASTEXITCODE -ne 0) {
+        throw "Runtime integration tests failed with exit code $LASTEXITCODE"
+    }
 }
 # Always clean before building: MSBuild's incremental state has repeatedly
 # skipped CoreCompile after source edits and shipped stale DLLs, so force a
@@ -147,7 +151,8 @@ foreach ($marker in @($Version, 'Soma Dynamics', 'Global controls',
         'Native DynamicBone', 'Advanced', 'Low', 'Medium', 'High', 'MotionGain', 'EnsureXml',
         'RotCalc', 'Remember per-character settings', 'Auto fix spring drift', 'Breast', 'Butt',
         'FPC_NATIVE_GUARD', 'FPC_PRESET_APPLY', 'SOMA_POSE_REBASE', 'SOMA_SCENE_REBASE',
-        'Timeline playback uses Spring fallback', 'SOMA_TIMELINE_SAFE')) {
+        'Timeline playback uses Spring fallback', 'SOMA_TIMELINE_SAFE',
+        'FleshBoneLookup', ' external_chains=', ' discovery_retry=')) {
     if (-not (Test-DllMarker $dllBytes $marker)) {
         throw "Built DLL is missing expected feature marker: $marker"
     }
@@ -166,7 +171,7 @@ if (-not $SkipArchive) {
     }
     Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $zip -CompressionLevel Optimal
     $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-    Set-Content -LiteralPath "$zip.sha256" -Value $hash -Encoding ASCII
+    Set-Content -LiteralPath "$zip.sha256" -Value $hash -Encoding utf8
     Write-Host "Archive: $zip"
     Write-Host "SHA256: $hash"
 }

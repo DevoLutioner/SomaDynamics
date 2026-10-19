@@ -36,6 +36,10 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
     private bool _collectMetricsThisFrame;
     private bool _runtimeStatusLogged;
     private float _retryTimer;
+    private int _boneRetryAttempts;
+    private const int MaxBoneRetryAttempts = 3;
+    private FleshBoneLookup _boneLookup;
+    private int _externalChainCount;
     private bool _chainPoseSettleActive;
     private int _chainPoseSettleMinFrames;
     private int _chainPoseSettleTimeoutFrames;
@@ -71,8 +75,18 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         }
         ChaControlRef = control;
         ParamsRef = param;
+        _retryTimer = 0f;
+        _boneRetryAttempts = 0;
+        RebuildSkeleton();
+    }
+
+    private void RebuildSkeleton()
+    {
+        FleshPartDef def = FleshPartDef.Get(_partId);
         _runtimeStatusLogged = false;
-        _lastGamePhysics = param != null && param.GamePhysics;
+        _lastGamePhysics = ParamsRef != null && ParamsRef.GamePhysics;
+        _boneLookup = ChaControlRef == null ? null : new FleshBoneLookup(ChaControlRef);
+        _externalChainCount = 0;
         _bones.Clear();
         for (int c = 0; c < def.Chains.Length; c++)
         {
@@ -81,8 +95,10 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         BuildChains();
         ThighPhysicsControllerPlugin.LogRuntime("SOMA_RUNTIME_INIT part=" + def.DisplayName +
             " bones=" + _bones.Count +
-            " enabled=" + (param != null && param.Enabled) +
-            " solver=" + (param != null && param.GamePhysics ? "Chain" : "Spring") +
+            " enabled=" + (ParamsRef != null && ParamsRef.Enabled) +
+            " solver=" + (ParamsRef != null && ParamsRef.GamePhysics ? "Chain" : "Spring") +
+            " external_chains=" + _externalChainCount +
+            " discovery_retry=" + _boneRetryAttempts +
             " collectMetrics=" + ThighPhysicsControllerPlugin.DebugCollectMetrics.Value);
     }
 
@@ -101,6 +117,11 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
 
     private void AddChainSide(FleshChainDef chainDef, string side, int chainIndex)
     {
+        if (_boneLookup != null && _boneLookup.ShouldYield(chainDef, side))
+        {
+            _externalChainCount++;
+            return;
+        }
         List<FleshBone> sideBones = new List<FleshBone>();
         for (int i = 0; i < chainDef.BoneNameTemplates.Length; i++)
         {
@@ -142,6 +163,8 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
 
     private void BuildChain(FleshChainDef chainDef, string side, int chainIndex)
     {
+        if (_boneLookup != null && _boneLookup.ShouldYield(chainDef, side))
+            return;
         Transform anchor = FindBone(chainDef.AnchorTemplate.Replace("{side}", side));
         if (anchor == null)
         {
@@ -193,7 +216,18 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         ResetMetricWindow();
         ResetPerformanceWindow();
         _metricWarmupRemaining = 2f;
-        BuildChains();
+        if (_bones.Count == 0 && ChaControlRef != null && ParamsRef != null)
+        {
+            // Explicit reset/reload is a new discovery opportunity even after an
+            // unsupported skeleton exhausted its bounded background retries.
+            _boneRetryAttempts = 0;
+            _retryTimer = 0f;
+            RebuildSkeleton();
+        }
+        else
+        {
+            BuildChains();
+        }
         for (int i = 0; i < _bones.Count; i++)
         {
             FleshBone bone = _bones[i];
@@ -553,84 +587,23 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
 
     private Transform FindBone(string name)
     {
-        if (ChaControlRef == null)
-        {
-            return null;
-        }
-        SkinnedMeshRenderer[] renderers = ChaControlRef.GetComponentsInChildren<SkinnedMeshRenderer>(true);
-        Transform fallbackActive = null;
-        Transform fallbackAny = null;
-        foreach (SkinnedMeshRenderer renderer in renderers)
-        {
-            if (renderer == null)
-            {
-                continue;
-            }
-            bool active = renderer.gameObject.activeInHierarchy;
-            Transform root = renderer.transform;
-            while (root.parent != null)
-            {
-                root = root.parent;
-            }
-            bool bodyMesh = root.name == "p_cf_body_00";
-            Transform[] bones = renderer.bones;
-            for (int i = 0; i < bones.Length; i++)
-            {
-                if (bones[i] == null || bones[i].name != name)
-                {
-                    continue;
-                }
-                if (active && bodyMesh)
-                {
-                    return bones[i];
-                }
-                if (active && fallbackActive == null)
-                {
-                    fallbackActive = bones[i];
-                }
-                if (fallbackAny == null)
-                {
-                    fallbackAny = bones[i];
-                }
-            }
-        }
-        if (fallbackActive != null)
-        {
-            return fallbackActive;
-        }
-        if (fallbackAny != null)
-        {
-            return fallbackAny;
-        }
-        Transform[] transforms = ChaControlRef.GetComponentsInChildren<Transform>(true);
-        for (int i = 0; i < transforms.Length; i++)
-        {
-            if (transforms[i].name == name && transforms[i].gameObject.activeInHierarchy)
-            {
-                return transforms[i];
-            }
-        }
-        for (int i = 0; i < transforms.Length; i++)
-        {
-            if (transforms[i].name == name)
-            {
-                return transforms[i];
-            }
-        }
-        return null;
+        return _boneLookup == null ? null : _boneLookup.Find(name);
     }
 
     private void CheckBones()
     {
         if (_bones.Count == 0)
         {
+            if (_boneRetryAttempts >= MaxBoneRetryAttempts)
+                return;
             if (ChaControlRef != null && ParamsRef != null)
             {
                 _retryTimer += Time.deltaTime;
                 if (_retryTimer >= 0.5f)
                 {
                     _retryTimer = 0f;
-                    Initialize(ChaControlRef, ParamsRef, _partId);
+                    _boneRetryAttempts++;
+                    RebuildSkeleton();
                 }
             }
             return;
@@ -646,12 +619,20 @@ public sealed partial class ThighFleshJiggle : MonoBehaviour
         }
         if (missing && ChaControlRef != null && ParamsRef != null)
         {
+            if (_boneRetryAttempts >= MaxBoneRetryAttempts)
+                return;
             _retryTimer += Time.deltaTime;
             if (_retryTimer >= 0.5f)
             {
                 _retryTimer = 0f;
-                Initialize(ChaControlRef, ParamsRef, _partId);
+                _boneRetryAttempts++;
+                RebuildSkeleton();
             }
+        }
+        else if (!missing)
+        {
+            _retryTimer = 0f;
+            _boneRetryAttempts = 0;
         }
     }
 

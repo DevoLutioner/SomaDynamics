@@ -15,7 +15,7 @@ using UnityEngine;
 namespace ThighPhysicsController;
 
 [BepInDependency("marco.kkapi")]
-[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Soma Dynamics", "1.0.3.8")]
+[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Soma Dynamics", "1.0.3.9")]
 [DefaultExecutionOrder(-1000)]
 public class ThighPhysicsControllerPlugin : BaseUnityPlugin
 {
