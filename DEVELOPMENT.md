@@ -32,8 +32,8 @@ FleshPhysicsController\
 ├─ tests\ParameterModel.Tests\      无游戏运行时的参数模型测试
 ├─ tools\Summarize-FleshPerformance.ps1  按部位/求解器汇总 CPU 微秒基线
 ├─ tools\Build-ThighPhysicsController.ps1  构建 + 打包 + SHA-256
-├─ packaging\SomaDynamics_1.0.2.4\ 发行目录（含 README.zh-CN.md、CHANGELOG.md）
-├─ packaging\SomaDynamics_1.0.2.4.zip + .sha256
+├─ packaging\SomaDynamics_1.0.3.10\ 发行目录（含 README.zh-CN.md、CHANGELOG.md）
+├─ packaging\SomaDynamics_1.0.3.10.zip + .sha256
 ├─ README.md                        用户/功能说明
 ├─ CHANGELOG.md                     更新日志
 └─ DEVELOPMENT.md                   本文档
@@ -42,7 +42,7 @@ FleshPhysicsController\
 ## 关键标识（不要乱改）
 
 - GUID：`codex.koikatumanager.thighphysicscontroller`（旧卡数据兼容，不能变）
-- 插件版本：1.0.2.4（`BepInPlugin`）
+- 插件版本：1.0.3.10（`BepInPlugin`，待实机验收）
 - 显示名：Soma Dynamics（中文名“形体动力学控制器”）
 - 卡片数据版本：61（v60 为已移除的胸臀实验 Spring；v54 为已归档坏版本）
 - XML 版本：4
@@ -78,12 +78,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-ThighPhysicsCo
 汇总脚本分析。旧 Mono 不提供精确的逐线程分配计数，因此不能把观测到的零堆增量表述为
 “绝对零分配”。
 
-产物：`packaging\SomaDynamics_1.0.2.4\`、ZIP、SHA-256。构建脚本会做版本、UI、
+产物：`packaging\SomaDynamics_1.0.3.10\`、ZIP、SHA-256。构建脚本会做版本、UI、
 胸臀 Spring 清除和原生链实时应用安全契约检查。
 
 ## 安装与测试
 
-- 安装：把 `packaging\SomaDynamics_1.0.2.4\BepInEx\plugins\ThighPhysicsController\`
+- 安装：把 `packaging\SomaDynamics_1.0.3.10\BepInEx\plugins\ThighPhysicsController\`
   覆盖到游戏 `BepInEx\plugins\ThighPhysicsController\`。
 - 测试：启动 `CharaStudio.exe`，Insert 打开面板，加载角色卡。
 - 日志：`Z:\Koikatu\output_log.txt`（插件 Debug 日志也写到这）。
@@ -94,7 +94,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-ThighPhysicsCo
 ## 日志格式速查
 
 ```text
-Loading [Soma Dynamics 1.0.2.4]
+Loading [Soma Dynamics 1.0.3.10]
 Flesh physics initialized: bones=8 part=Thigh
 Flesh physics initialized: bones=6 part=Arm
 Flesh physics initialized: bones=2 part=Belly
@@ -109,6 +109,14 @@ Flesh physics [cf_s_thigh01_L]: applied=(x,y,z) mag=... rot=(...)
 
 ## 当前状态与决策记录
 
+- 1.0.3.10：`DisableMaleByDefault` 默认 true。男性套卡在 Force enable/卡片/会话记忆/默认预设
+  之后关闭五部位；maintainState 换装保留手动启用。`ApplyNativeBody` 在胸臀全关时恢复旧接管并
+  退出，不再创建空接管。Config SettingChanged 只排队，由 Update 在主线程关闭已加载男性。
+  RuntimeIntegration.Tests 现在包含正式 ThighController；25 个场景覆盖男性默认与已有物理回归。
+- 1.0.3.9：`FleshBoneLookup` 在一次发现中索引骨骼并识别外部 DynamicBone 所有权；
+  对重叠的同侧链整体让权，避免 Chain RC 间接旋转外部骨骼。`CheckBones` 后台重试上限为三次。
+  `tools/Test-FleshRuntimeIntegration.ps1` 编译正式组件与求解器，在 .NET 8 的 Unity 边界替身上
+  最初覆盖 13 个场景；构建默认执行。实机验证状态与操作见 `docs/ISSUE-12-13-VALIDATION.md`。
 - 弹簧模式是主推手感（用户认可）；链式模式保留为“跳舞增强”选项。
 - 弹簧/链式参数完全独立：共享参数 `Chain`/`ChainBones` vs 弹簧 `Thigh00`/`Bones`；
   面板按部位（Thigh/Arm/Belly）切换编辑，控件 ID 带模式前缀避免缓冲串扰。

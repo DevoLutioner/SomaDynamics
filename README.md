@@ -1,4 +1,4 @@
-# Soma Dynamics｜形体动力学控制器 v1.0.3.7
+# Soma Dynamics｜形体动力学控制器 v1.0.3.10
 
 Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管理大腿、手臂、
 腹部、胸部和臀部。界面以少量感知参数为主，同时保留逐骨高级调节。
@@ -6,10 +6,13 @@ Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管�
 内部 GUID、DLL、安装目录和角色卡数据键继续沿用 `ThighPhysicsController`，以兼容旧卡、
 配置和现有安装。
 
-## 1.0 至 1.0.3.7 修复总览
+## 1.0 至 1.0.3.10 修复总览
 
 | 版本 | 用户可见修复 |
 | --- | --- |
+| 1.0.3.10 | 新增默认开启的“男性角色默认关闭”：男性套卡不自动启用五部位；可手动开启，换装保留选择，重新载入卡片恢复默认。 |
+| 1.0.3.9 | 对 BP 等外部 DynamicBone 驱动的重叠链让权，避免 Spring/Chain 和复位覆盖外部状态；缓存骨骼查找并限制缺骨重试。实机验收见验证记录。 |
+| 1.0.3.8 | 升级 Chain 低频回弹曲线并提高默认 Thigh 弹性；不增加粒子循环开销，恢复更明显的摆动响应。 |
 | 1.0.0.0 | 正式统一大腿、手臂、腹部、胸部与臀部管理；胸臀改为安全接管游戏原生碰撞链，移除会重复解算的实验 Spring。 |
 | 1.0.1.0 | Studio 换角色、换动作时自动重置 Soma 运行状态，减少手动恢复姿态；关闭诊断后不再保留采样开销。 |
 | 1.0.2.0 | Timeline 载入场景时不再把角色强制拉回卡片初始姿势；修复 Chain 使用旧旋转基准造成的大腿扭曲。 |
@@ -32,6 +35,7 @@ Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管�
 ## 物理结构
 
 - 大腿、手臂、腹部：使用 Soma Dynamics 的 `Spring` 或 `Chain`，三个部位可自由组合。
+- 同一侧链有骨骼已由外部 `DynamicBone` 驱动时，该侧交给外部物理，Soma 的复位也会保留它；未冲突部位继续使用 Soma。重新载入角色时重新识别归属。
 - 胸部、臀部：使用游戏原生 `DynamicBone_Ver02` 碰撞链，由插件统一管理参数。
 - 胸臀实验性独立 Spring 已根据实机结果完整移除；不会隐藏入口、保留双解算或写入无效字段。
 - 胸臀实时应用不调用 `SetWeight` 或直接重置粒子位置；PushUp 体型先由游戏完成骨架刷新，
@@ -81,6 +85,12 @@ Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管�
 
 ### 默认值与预设
 
+- 「默认值 Defaults」新增「男性角色默认关闭」，默认勾选。男性套卡时，Soma 的大腿、手臂、
+  腹部、胸部和臀部全部关闭，优先于卡片启用状态、会话记忆、`Force enable` 和全局部位开关。
+  胸臀关闭时不创建 Soma 原生参数接管；游戏和其他插件的原生物理保持各自行为。
+- 需要某个男性角色使用物理时，可在其部位面板手动开启；换装保留手动选择，重新载入角色卡
+  恢复男性默认关闭。取消此全局开关后，后续加载按原有默认/卡片逻辑处理。
+  开启此开关也会关闭当前已加载男性的 Soma 部位，女性角色不受影响。
 - 「默认值 Defaults」区提供五个部位的默认启用开关；勾选「应用到所有角色」后对所有
   角色生效（例如腹部偏瘦可全局默认关闭腹部），否则只对新加载且无卡数据的角色生效。
 - 配置文件区新增【保存当前设置 Save】一键直写预设与【应用所选 Apply】一键应用；
@@ -135,7 +145,7 @@ BPC 开发术语。完成迁移后，不需要同时启用以下旧插件：
 
 ## 兼容与数据版本
 
-- 插件版本：`1.0.3.7`
+- 插件版本：`1.0.3.10`
 - 卡片数据版本：`61`
 - XML 版本：`4`
 - GUID：`codex.koikatumanager.thighphysicscontroller`
@@ -153,6 +163,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-ThighPhysicsCo
 
 正式构建会运行参数模型测试、胸臀实时应用安全契约、品牌/UI 字符串烟测，并生成：
 
-- `packaging\SomaDynamics_1.0.3.7\`
-- `packaging\SomaDynamics_1.0.3.7.zip`
-- `packaging\SomaDynamics_1.0.3.7.zip.sha256`
+- `packaging\SomaDynamics_1.0.3.10\`
+- `packaging\SomaDynamics_1.0.3.10.zip`
+- `packaging\SomaDynamics_1.0.3.10.zip.sha256`
+
+Issue #12/#13 的自动化复现、修复范围与待完成的实机验收见
+[`docs/ISSUE-12-13-VALIDATION.md`](docs/ISSUE-12-13-VALIDATION.md)。

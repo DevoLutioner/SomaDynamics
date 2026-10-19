@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <SomaSourceRoot Condition="'$(SomaSourceRoot)' == ''">../../src/ThighPhysicsController</SomaSourceRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(SomaSourceRoot)/*.cs"
+      Exclude="$(SomaSourceRoot)/ThighPhysicsControllerPlugin.cs;$(SomaSourceRoot)/NativeDynamicBoneBridge.cs;$(SomaSourceRoot)/WindowsFileDialog.cs;$(SomaSourceRoot)/TimelineConstraintBridge.cs;$(SomaSourceRoot)/HSceneBridge.cs"
+      Link="Source/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

@@ -117,6 +117,21 @@ internal static class FleshSolverMath
         return Mathf.Lerp(0.92f, 0.05f, Mathf.Clamp01(target));
     }
 
+    /// <summary>
+    /// Converts the legacy chain frequency control into a bounded return-force
+    /// response. The old linear multiplication made low-frequency presets lose
+    /// most of their stiffness (the default thigh used only 20% of it). A square
+    /// root curve restores useful low-frequency motion while preserving the two
+    /// important compatibility points: zero still disables the return force and
+    /// one-or-higher never exceeds the old normalized maximum.
+    /// </summary>
+    public static float ChainReturnResponse(float frequency)
+    {
+        frequency = FleshValue.Clamp(frequency, 0f,
+            FleshParameterRanges.JitterFrequencyMax, 1f);
+        return (float)Math.Sqrt(Mathf.Clamp01(frequency));
+    }
+
     public static float TargetRangeScale(float strength, float motionTarget)
     {
         strength = FleshValue.Clamp(strength, 0f, FleshParameterRanges.TargetMax, 0.7f);
@@ -133,11 +148,10 @@ internal static class FleshSolverMath
 
     public static float SingleParticleReturnStrength(ChainParams parameters)
     {
-        float jitter = FleshValue.Clamp(parameters.JitterFreq, 0f,
-            FleshParameterRanges.JitterFrequencyMax, 1f);
+        float jitterResponse = ChainReturnResponse(parameters.JitterFreq);
         float elasticity = FleshValue.Clamp(parameters.Elasticity, 0f, 1f, 0.25f);
         float stiffness = FleshValue.Clamp(parameters.Stiffness, 0f, 1f, 0.9f);
-        return Mathf.Clamp01((elasticity * 0.75f + stiffness * 0.10f) * jitter);
+        return Mathf.Clamp01((elasticity * 0.75f + stiffness * 0.10f) * jitterResponse);
     }
 
     public static float AdjustPerFrameRate(float referenceStrength, float dt)

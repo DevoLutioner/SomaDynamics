@@ -15,7 +15,7 @@ using UnityEngine;
 namespace ThighPhysicsController;
 
 [BepInDependency("marco.kkapi")]
-[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Soma Dynamics", "1.0.3.7")]
+[BepInPlugin("codex.koikatumanager.thighphysicscontroller", "Soma Dynamics", "1.0.3.10")]
 [DefaultExecutionOrder(-1000)]
 public class ThighPhysicsControllerPlugin : BaseUnityPlugin
 {
@@ -34,6 +34,7 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
     internal static ConfigEntry<bool> DefaultBellyEnabled;
     internal static ConfigEntry<bool> DefaultBreastEnabled;
     internal static ConfigEntry<bool> DefaultButtEnabled;
+    internal static ConfigEntry<bool> DisableMaleByDefault;
     internal static ConfigEntry<bool> ApplyDefaultsToAllCharacters;
     internal static ConfigEntry<bool> DebugCollectMetrics;
     internal static ConfigEntry<bool> DebugLogFlesh;
@@ -46,6 +47,7 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
 
     private Rect _windowRect = new Rect(20f, 20f, 560f, 680f);
     private bool _showWindow;
+    private static volatile bool _maleDefaultsApplyPending;
     private int _selected = -1;
     private int _selectedInstanceId = -1;
     private int _selectedPart;
@@ -70,6 +72,7 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
     private static bool _loggedBustGravityGuard;
     private static bool _loggedPushupBridge;
     private static bool _hSceneActive;
+    private bool _runtimeTickLogged;
 
     private Harmony _harmony;
     private Harmony _inputHarmony;
@@ -118,6 +121,11 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
             "Default enable state for the breast native chain on newly loaded characters.");
         DefaultButtEnabled = Config.Bind("Defaults", "Default butt enabled", true,
             "Default enable state for the butt native chain on newly loaded characters.");
+        DisableMaleByDefault = Config.Bind("Defaults", "Disable male characters by default", true,
+            "Disable all Soma parts when male characters load, overriding saved enable flags " +
+            "and Force enable. Individual parts may still be enabled manually; outfit refreshes " +
+            "preserve that choice. Turning this off restores the usual defaults on future loads.");
+        DisableMaleByDefault.SettingChanged += OnMaleDefaultChanged;
         ApplyDefaultsToAllCharacters = Config.Bind("Defaults",
             "Apply defaults to all characters", false,
             "When enabled, the default part switches above apply to every loaded character " +
@@ -137,6 +145,8 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         _runtimeLog = Logger;
         Logger.LogInfo("Soma Dynamics initialized (autoApply=" + AutoApply.Value +
                        ", forceEnable=" + ForceEnable.Value +
+                       ", disableMales=" + DisableMaleByDefault.Value +
+                       ", collectMetrics=" + DebugCollectMetrics.Value +
                        ", timelineSpringFallback=" + TimelinePlaybackSpringFallback.Value +
                        ", timelineAuto=" + TimelineSpringFallbackAuto.Value +
                        ", defaultPreset=" + (string.IsNullOrEmpty(DefaultPreset.Value)
@@ -288,6 +298,27 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
 
     private void Update()
     {
+        if (_maleDefaultsApplyPending)
+        {
+            _maleDefaultsApplyPending = false;
+            if (DisableMaleByDefault.Value)
+            {
+                int changed = 0;
+                for (int i = Controllers.Count - 1; i >= 0; i--)
+                {
+                    ThighController controller = Controllers[i];
+                    if (controller != null && controller.ApplyMaleDefaultOffNow())
+                        changed++;
+                }
+                LogRuntime("SOMA_MALE_DEFAULT action=setting_changed controllers=" + changed);
+            }
+        }
+        if (!_runtimeTickLogged)
+        {
+            _runtimeTickLogged = true;
+            Logger.LogInfo("SOMA_RUNTIME_TICK controllers=" + Controllers.Count +
+                           " collectMetrics=" + DebugCollectMetrics.Value);
+        }
         KeyboardShortcut shortcut = WindowKey.Value;
         if (shortcut.IsDown())
         {
@@ -370,8 +401,23 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
         }
     }
 
+    internal static void LogRuntime(string message)
+    {
+        _runtimeLog?.LogInfo(message);
+    }
+
+    private static void OnMaleDefaultChanged(object sender, EventArgs args)
+    {
+        // Config reloads need not originate on Unity's main thread. Defer
+        // component/Transform changes to Update; disabling the policy is a no-op.
+        _maleDefaultsApplyPending = DisableMaleByDefault.Value;
+    }
+
     private void OnDestroy()
     {
+        if (DisableMaleByDefault != null)
+            DisableMaleByDefault.SettingChanged -= OnMaleDefaultChanged;
+        _maleDefaultsApplyPending = false;
         StudioSaveLoadApi.SceneLoad -= OnStudioSceneLoad;
         SetInputPatches(false);
         if (_harmony != null)
@@ -792,6 +838,8 @@ public class ThighPhysicsControllerPlugin : BaseUnityPlugin
     private static void DrawDefaultsPanel()
     {
         GUILayout.Label("默认值  Defaults (global)");
+        DrawDefaultToggle(DisableMaleByDefault, " 男性角色默认关闭  Disable males by default");
+        GUILayout.Label("男性载入时关闭全部位；可手动开启，换装保留手动选择。", GUILayout.Width(520f));
         bool defaultsChanged = false;
         defaultsChanged |= DrawDefaultToggle(DefaultThighEnabled, " 默认启用 大腿 Thigh");
         defaultsChanged |= DrawDefaultToggle(DefaultArmEnabled, " 默认启用 手臂 Arm");

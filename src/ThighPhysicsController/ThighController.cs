@@ -270,15 +270,18 @@ public sealed class ThighController : CharaCustomFunctionController
     {
         string key = IdentityKey;
         bool useMemory = ThighPhysicsControllerPlugin.RememberPerCharacter.Value && key.Length > 0;
+        bool maleDefaultOff = IsMale && ThighPhysicsControllerPlugin.DisableMaleByDefault.Value;
         FleshProfile profile = null;
         bool hadCardData = true;
         if (useMemory && ThighPhysicsControllerPlugin.MemoryProfiles.TryGetValue(key, out profile))
         {
-            Params = profile.Thigh;
-            ArmParams = profile.Arm;
-            BellyParams = profile.Belly;
-            BreastProfile = profile.Breast;
-            ButtParams = profile.Butt;
+            // Loading another male must not turn off a namesake that the user
+            // explicitly enabled. Keep remembered tuning, isolate load defaults.
+            Params = maleDefaultOff ? profile.Thigh.Clone() : profile.Thigh;
+            ArmParams = maleDefaultOff ? profile.Arm.Clone() : profile.Arm;
+            BellyParams = maleDefaultOff ? profile.Belly.Clone() : profile.Belly;
+            BreastProfile = maleDefaultOff ? profile.Breast.Clone() : profile.Breast;
+            ButtParams = maleDefaultOff ? profile.Butt.Clone() : profile.Butt;
         }
         else
         {
@@ -332,6 +335,21 @@ public sealed class ThighController : CharaCustomFunctionController
         }
         // 默认开关必须在 ForceEnable 之后执行,否则全局关闭的部位会被强制重新打开。
         ApplyDefaultPartEnables(hadCardData);
+        if (maleDefaultOff && useMemory)
+        {
+            // The new snapshot becomes this identity's remembered tuning while
+            // already loaded namesakes keep their independent enable choices.
+            ThighPhysicsControllerPlugin.MemoryProfiles[key] = new FleshProfile
+            {
+                Thigh = Params,
+                Arm = ArmParams,
+                Belly = BellyParams,
+                Breast = BreastProfile,
+                Butt = ButtParams,
+            };
+        }
+        if (maleDefaultOff)
+            ThighPhysicsControllerPlugin.LogRuntime("SOMA_MALE_DEFAULT action=load disabled=true");
         _paramsLoaded = true;
     }
 
@@ -341,12 +359,28 @@ public sealed class ThighController : CharaCustomFunctionController
     /// </summary>
     internal void ApplyGlobalDefaultPartEnables()
     {
-        Params.Enabled = ThighPhysicsControllerPlugin.DefaultThighEnabled.Value;
-        ArmParams.Enabled = ThighPhysicsControllerPlugin.DefaultArmEnabled.Value;
-        BellyParams.Enabled = ThighPhysicsControllerPlugin.DefaultBellyEnabled.Value;
-        BreastProfile.SetEnabledAll(ThighPhysicsControllerPlugin.DefaultBreastEnabled.Value);
-        ButtParams.Enabled = ThighPhysicsControllerPlugin.DefaultButtEnabled.Value;
+        ApplyDefaultPartEnables(hadCardData: false);
         Apply(resetPosition: false);
+    }
+
+    internal bool ApplyMaleDefaultOffNow()
+    {
+        if (!ApplyMaleDefaultOff())
+            return false;
+        Apply(resetPosition: false);
+        return true;
+    }
+
+    private bool ApplyMaleDefaultOff()
+    {
+        if (!IsMale || !ThighPhysicsControllerPlugin.DisableMaleByDefault.Value)
+            return false;
+        Params.Enabled = false;
+        ArmParams.Enabled = false;
+        BellyParams.Enabled = false;
+        BreastProfile.SetEnabledAll(false);
+        ButtParams.Enabled = false;
+        return true;
     }
 
     internal bool HForcedSpringThigh;
@@ -456,6 +490,11 @@ public sealed class ThighController : CharaCustomFunctionController
 
     private void ApplyDefaultPartEnables(bool hadCardData)
     {
+        // This load/default policy takes precedence over card flags, session
+        // memory, Force enable and the global per-part switches. Ordinary Apply
+        // does not call it, so explicit per-character opt-in remains available.
+        if (ApplyMaleDefaultOff())
+            return;
         if (hadCardData && !ThighPhysicsControllerPlugin.ApplyDefaultsToAllCharacters.Value)
         {
             return;
@@ -562,10 +601,7 @@ public sealed class ThighController : CharaCustomFunctionController
             EnsureFlesh();
             ApplyFlesh(resetPosition);
         }
-        if (_nativeBody == null)
-            _nativeBody = new NativeDynamicBoneBridge(ChaControl);
-        _nativeBody.Apply(FleshPartId.Breast, GetNativeParams(FleshPartId.Breast));
-        _nativeBody.Apply(FleshPartId.Butt, ButtParams);
+        ApplyNativeBody();
     }
 
     internal void UpdateTick()
@@ -678,9 +714,19 @@ public sealed class ThighController : CharaCustomFunctionController
         // breast-only operation touch arm and belly solver state.
         if (ChaControl == null)
             return;
+        NativeBodyParams breast = GetNativeParams(FleshPartId.Breast);
+        if (!breast.Enabled && !ButtParams.Enabled)
+        {
+            if (_nativeBody != null)
+            {
+                _nativeBody.RestoreAll();
+                _nativeBody = null;
+            }
+            return;
+        }
         if (_nativeBody == null)
             _nativeBody = new NativeDynamicBoneBridge(ChaControl);
-        _nativeBody.Apply(FleshPartId.Breast, GetNativeParams(FleshPartId.Breast));
+        _nativeBody.Apply(FleshPartId.Breast, breast);
         _nativeBody.Apply(FleshPartId.Butt, ButtParams);
     }
 
@@ -1128,6 +1174,8 @@ public sealed class ThighController : CharaCustomFunctionController
 /// <summary>
 /// Session-memory profile for one character identity: one shared parameter set per
 /// part, so same-name characters in the scene edit the same objects (auto-sync).
+/// Protected male loads take a snapshot so their default-off cannot revoke an
+/// already loaded namesake's explicit opt-in.
 /// </summary>
 internal sealed class FleshProfile
 {
