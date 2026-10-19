@@ -8,7 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(SomaSourceRoot)/*.cs"
-      Exclude="$(SomaSourceRoot)/ThighController.cs;$(SomaSourceRoot)/ThighPhysicsControllerPlugin.cs;$(SomaSourceRoot)/NativeDynamicBoneBridge.cs;$(SomaSourceRoot)/WindowsFileDialog.cs;$(SomaSourceRoot)/TimelineConstraintBridge.cs;$(SomaSourceRoot)/HSceneBridge.cs"
+      Exclude="$(SomaSourceRoot)/ThighPhysicsControllerPlugin.cs;$(SomaSourceRoot)/NativeDynamicBoneBridge.cs;$(SomaSourceRoot)/WindowsFileDialog.cs;$(SomaSourceRoot)/TimelineConstraintBridge.cs;$(SomaSourceRoot)/HSceneBridge.cs"
       Link="Source/%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

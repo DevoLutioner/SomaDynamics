@@ -2,6 +2,9 @@
 
 Date: 2026-10-19. Baseline source: `8b9efcb` (1.0.3.8).
 
+This records the 1.0.3.9 comparison. The current 1.0.3.10 suite additionally executes
+the production character controller and has 25 cases including male default-off behavior.
+
 Reports: [BP state closes after a delay (#12)](https://github.com/DevoLutioner/SomaDynamics/issues/12),
 [periodic FPS drops with automatic application / drift correction (#13)](https://github.com/DevoLutioner/SomaDynamics/issues/13).
 
@@ -55,7 +58,9 @@ Local evidence is kept in ignored `artifacts/issue-12-13/`.
 
 ## Runtime acceptance still required
 
-No candidate DLL was installed into the main game. The running Studio was not restarted.
+During 1.0.3.9 preparation, no candidate DLL was installed and Studio was not restarted.
+The user subsequently authorized installation; 1.0.3.9 was installed with DLL/configuration
+backup on 2026-10-20. The original visual/FPS reports still require runtime acceptance.
 No original issue was closed and no GitHub release was published.
 
 After authorized backup/install, compare the same scene with 1.0.3.8 and 1.0.3.9:

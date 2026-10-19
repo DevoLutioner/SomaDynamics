@@ -23,6 +23,7 @@ internal static class Program
         Run("unrelated DynamicBone does not reserve thigh bones", UnrelatedOwner);
         Run("declared exclusions preserve normal thigh physics", ExcludedSubtree);
         Run("Spring drift watchdog has no managed allocation loop", DriftAllocations);
+        ControllerDefaultsTests.Run(Run);
         Console.WriteLine(_failures == 0 ? "PASS RuntimeIntegration.Tests" : "FAIL RuntimeIntegration.Tests (" + _failures + " cases)");
         return _failures == 0 ? 0 : 1;
     }

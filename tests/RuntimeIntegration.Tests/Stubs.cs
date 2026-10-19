@@ -27,6 +27,11 @@ namespace UnityEngine
     {
         public string name;
         public int GetInstanceID() { return GetHashCode(); }
+        public static void Destroy(Object value)
+        {
+            GameObject obj = value as GameObject;
+            if (obj != null) { obj.activeSelf = false; obj.transform.parent = null; }
+        }
     }
 
     public class Component : Object
@@ -95,6 +100,7 @@ namespace UnityEngine
         }
         public int childCount { get { return Children.Count; } }
         public Transform GetChild(int index) { return Children[index]; }
+        public void SetParent(Transform value, bool worldPositionStays) { parent = value; }
         public Vector3 localPosition;
         public Quaternion localRotation = Quaternion.identity;
         public Vector3 localEulerAngles { get { return localRotation.eulerAngles; } }
@@ -214,7 +220,42 @@ namespace UnityEngine.Profiling
     }
 }
 
-public sealed class ChaControl : UnityEngine.Component { }
+namespace KKAPI
+{
+    public enum GameMode { Studio }
+}
+
+namespace KKAPI.Chara
+{
+    public class CharaCustomFunctionController : UnityEngine.MonoBehaviour
+    {
+        public ChaControl ChaControl;
+        public ExtensibleSaveFormat.PluginData TestCardData;
+        protected ExtensibleSaveFormat.PluginData GetExtendedData() { return TestCardData; }
+        protected void SetExtendedData(ExtensibleSaveFormat.PluginData data) { TestCardData = data; }
+        protected virtual void OnReload(KKAPI.GameMode mode, bool maintainState) { }
+        protected virtual void OnCardBeingSaved(KKAPI.GameMode mode) { }
+        protected virtual void OnDestroy() { }
+        protected virtual void OnEnable() { }
+        public void ReloadForTest(bool maintainState) { OnReload(KKAPI.GameMode.Studio, maintainState); }
+    }
+}
+
+public class ChaInfo : UnityEngine.Component
+{
+    public ChaFile chaFile = new ChaFile();
+    public ChaFileStatus fileStatus = new ChaFileStatus();
+}
+public sealed class ChaControl : ChaInfo
+{
+    public BustSoft bustSoft;
+    public BustGravity bustGravity;
+}
+public sealed class ChaFile { public ChaFileParameter parameter = new ChaFileParameter(); }
+public sealed class ChaFileParameter { public string fullname = "Test"; public byte sex = 1; public int personality; }
+public sealed class ChaFileStatus { public int coordinateType; public byte[] clothesState = new byte[3]; }
+public sealed class BustSoft { }
+public sealed class BustGravity { }
 
 public sealed class DynamicBone : UnityEngine.Behaviour
 {
@@ -235,6 +276,21 @@ namespace ThighPhysicsController
     }
     internal static class ThighPhysicsControllerPlugin
     {
+        public static readonly ConfigValue<bool> AutoApply = new ConfigValue<bool>(true);
+        public static readonly ConfigValue<bool> ForceEnable = new ConfigValue<bool>(true);
+        public static readonly ConfigValue<bool> RememberPerCharacter = new ConfigValue<bool>(true);
+        public static readonly ConfigValue<bool> DisableMaleByDefault = new ConfigValue<bool>(true);
+        public static readonly ConfigValue<bool> DefaultThighEnabled = new ConfigValue<bool>(true);
+        public static readonly ConfigValue<bool> DefaultArmEnabled = new ConfigValue<bool>(true);
+        public static readonly ConfigValue<bool> DefaultBellyEnabled = new ConfigValue<bool>(true);
+        public static readonly ConfigValue<bool> DefaultBreastEnabled = new ConfigValue<bool>(true);
+        public static readonly ConfigValue<bool> DefaultButtEnabled = new ConfigValue<bool>(true);
+        public static readonly ConfigValue<bool> ApplyDefaultsToAllCharacters = new ConfigValue<bool>(true);
+        public static readonly ConfigValue<bool> DebugDumpSkeleton = new ConfigValue<bool>(false);
+        public static readonly ConfigValue<string> DefaultPreset = new ConfigValue<string>("");
+        public static readonly ConfigValue<string> PresetDirectory = new ConfigValue<string>(System.IO.Path.GetTempPath());
+        public static readonly List<ThighController> Controllers = new List<ThighController>();
+        public static readonly Dictionary<string, FleshProfile> MemoryProfiles = new Dictionary<string, FleshProfile>();
         public static readonly ConfigValue<bool> AutoFixSpringDrift = new ConfigValue<bool>(true);
         public static readonly ConfigValue<bool> DebugCollectMetrics = new ConfigValue<bool>(false);
         public static readonly ConfigValue<bool> DebugLogFlesh = new ConfigValue<bool>(false);
@@ -247,5 +303,14 @@ namespace ThighPhysicsController
     {
         public static bool IsTimelinePlaying() { return false; }
         public static bool ShouldYieldChainRotations(UnityEngine.Transform root) { return false; }
+    }
+    internal sealed class NativeDynamicBoneBridge
+    {
+        public static int Created;
+        public static int ApplyCalls;
+        public static int Restores;
+        public NativeDynamicBoneBridge(ChaControl control) { Created++; }
+        public void Apply(FleshPartId part, NativeBodyParams value) { ApplyCalls++; }
+        public void RestoreAll() { Restores++; }
     }
 }

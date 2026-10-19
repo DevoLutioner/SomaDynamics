@@ -2,7 +2,7 @@
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
 
-    [string]$Version = '1.0.3.9',
+    [string]$Version = '1.0.3.10',
 
     [string]$GameRoot = '',
 
@@ -152,7 +152,8 @@ foreach ($marker in @($Version, 'Soma Dynamics', 'Global controls',
         'RotCalc', 'Remember per-character settings', 'Auto fix spring drift', 'Breast', 'Butt',
         'FPC_NATIVE_GUARD', 'FPC_PRESET_APPLY', 'SOMA_POSE_REBASE', 'SOMA_SCENE_REBASE',
         'Timeline playback uses Spring fallback', 'SOMA_TIMELINE_SAFE',
-        'FleshBoneLookup', ' external_chains=', ' discovery_retry=')) {
+        'FleshBoneLookup', ' external_chains=', ' discovery_retry=',
+        'Disable male characters by default', 'SOMA_MALE_DEFAULT')) {
     if (-not (Test-DllMarker $dllBytes $marker)) {
         throw "Built DLL is missing expected feature marker: $marker"
     }
