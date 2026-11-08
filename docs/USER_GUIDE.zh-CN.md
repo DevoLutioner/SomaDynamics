@@ -1,7 +1,8 @@
 # Soma Dynamics 1.0 完整使用教程
 
-本文适用于 Koikatu / Koikatsu Party 的 BepInEx 5 环境，以及 CharaStudio 中使用
-MMD Director 的场景。Soma Dynamics 管理角色形体物理；配套的
+本文适用于 Koikatu / Koikatsu Party（KK）与 Koikatsu Sunshine（KKS）的 BepInEx 5 环境，
+以及 CharaStudio 中使用 MMD Director 的场景。安装包须与游戏匹配。
+Soma Dynamics 管理角色形体物理；配套的
 MMD DynamicBone Stabilizer 专门稳定 MMD 播放时的头发、衣摆、饰品和裙骨碰撞。
 
 ## 1. 两个插件分别负责什么
@@ -20,7 +21,7 @@ MMD DynamicBone Stabilizer 专门稳定 MMD 播放时的头发、衣摆、饰品
 
 1. 已安装 BepInEx 5，并能正常进入游戏或 CharaStudio。
 2. 使用 MMD 稳定器时，已安装 MMD Director 及其自带的 CharaAnime 2.8 或更高版本。
-3. 完全关闭 `Koikatu.exe` 与 `CharaStudio.exe`。游戏运行时不要覆盖 DLL。
+3. 完全关闭 `Koikatu.exe` / `KoikatsuSunshine.exe` 与 `CharaStudio.exe`。游戏运行时不要覆盖 DLL。
 4. 检查 `BepInEx/plugins` 中是否存在旧版 FPC 或 BPC。一个插件只能保留一个以
    `.dll` 结尾的活动副本。
 
@@ -72,28 +73,39 @@ DLL。如果这些文件已经是 `.disabled`，无需继续处理。
 
 ## 4. 安装方法
 
-### 推荐：二合一整合包
+### 先选择匹配游戏的安装包
 
-1. 下载 `SomaDynamics_1.0.2.7-with-MMD-Stabilizer-v1.2.1.zip`。
+| 游戏 | Soma Dynamics 1.0.3.10 安装包 | 依赖 |
+| --- | --- | --- |
+| Koikatu / Koikatsu Party（KK） | `SomaDynamics_1.0.3.10.zip` | `KKAPI.dll`、`KK_BepisPlugins/ExtensibleSaveFormat.dll` |
+| Koikatsu Sunshine（KKS） | `SomaDynamics_KKS_1.0.3.10.zip` | `KKSAPI.dll`、`KKS_BepisPlugins/KKS_ExtensibleSaveFormat.dll` |
+
+两版的 DLL 都叫 `ThighPhysicsController.dll`，沿用同一插件 GUID 与卡片扩展数据格式。
+请按 ZIP 文件名选择；将 KK 的 ZIP 或 DLL 改名为 KKS 不能使其在 KKS 加载。
+
+### 安装 Soma Dynamics
+
+1. 从 [Soma Dynamics Releases](https://github.com/DevoLutioner/SomaDynamics/releases/tag/v1.0.3.10)
+   下载上表对应的 ZIP。
 2. 打开压缩包，确认最外层直接包含 `BepInEx` 文件夹。
-3. 将 `BepInEx` 合并到游戏根目录，也就是包含 `Koikatu.exe` 和
-   `CharaStudio.exe` 的目录。
+3. 将 `BepInEx` 合并到对应游戏根目录，也就是包含 `Koikatu.exe` 或
+   `KoikatsuSunshine.exe` 以及 `CharaStudio.exe` 的目录。
 4. 同意覆盖旧版本文件。
 
 安装完成后应存在：
 
 ```text
 BepInEx/plugins/ThighPhysicsController/ThighPhysicsController.dll
-BepInEx/plugins/MmdDynamicBoneStabilizer/MmdDynamicBoneStabilizer.dll
 ```
 
 `ThighPhysicsController.dll` 是为兼容旧卡保留的内部文件名，界面显示名仍是
 Soma Dynamics。
 
-### 独立安装
+### MMD 配套
 
-不使用 MMD 时，只安装 `SomaDynamics_1.0.2.7.zip` 即可。只需要修复 MMD 头发或裙摆时，
-也可以单独安装 `MmdDynamicBoneStabilizer-v1.2.1.zip`。
+使用 MMD 时，可另行安装与游戏匹配的 MMD DynamicBone Stabilizer；Soma 独立包不包含
+该插件。安装后应存在 `BepInEx/plugins/MmdDynamicBoneStabilizer/MmdDynamicBoneStabilizer.dll`。
+只需要稳定 MMD 的头发或裙摆时，也可以只安装稳定器。
 
 ## 5. 第一次启动
 
@@ -107,7 +119,7 @@ Soma Dynamics。
 启动日志位于 `BepInEx/LogOutput.log`。正常加载时可搜索：
 
 ```text
-Loading [Soma Dynamics 1.0.2.7]
+Loading [Soma Dynamics 1.0.3.10]
 Loading [MMD DynamicBone Stabilizer 1.2.1]
 MMD DynamicBone stabilization active
 ```
@@ -229,6 +241,17 @@ BepInEx/config/codex.koikatu.mmddynamicbonestabilizer.cfg
 先确认角色已经加载，然后检查 `LogOutput.log` 是否出现 Soma Dynamics 的加载行。若完全
 没有，通常是 ZIP 解压层级错误、DLL 仍在双层目录，或同时存在多个旧 DLL。
 
+### KKS 提示脚本无法实例化
+
+若日志出现 `ThighPhysicsController.ThighPhysicsControllerPlugin could not be instantiated`
+或相近提示，先确认安装的是 `SomaDynamics_KKS_1.0.3.10.zip`。原 1.0.3.10 发行中的
+`SomaDynamics_1.0.3.10.zip` 是 KK 构建，误装到 KKS 会触发此问题（Issue #15）。
+
+关闭 KKS 和 Studio，用 KKS 包覆盖同路径 DLL，并确认 `KKSAPI.dll` 与
+`KKS_BepisPlugins/KKS_ExtensibleSaveFormat.dll` 已安装。再次启动后，检查日志是否出现
+`Soma Dynamics initialized` 和 `Native breast and Studio pose-change patches installed`。
+两版共用文件名，切勿同时保留两个活动 DLL。
+
 ### 中档与高档看起来接近
 
 确认当前部位是否启用、选择的是 Spring 还是 Chain，并观察动作本身是否足够激发物理。
@@ -276,7 +299,7 @@ MMD 旋转与方向轴拖动的输入不同，静态拖动不能完全代表舞�
 
 ## 14. 推荐的首次测试顺序
 
-1. 关闭 BPC，安装二合一包。
+1. 关闭 BPC，安装匹配游戏的 Soma 包；使用 MMD 时再安装对应的稳定器。
 2. 加载角色，选择 `中`，先播放没有碰撞的普通动作。
 3. 测试胸部和臀部碰撞，确认没有持续振荡。
 4. 播放常用 MMD，观察大腿、手臂和腹部。

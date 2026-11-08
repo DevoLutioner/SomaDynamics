@@ -1,17 +1,32 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <AssemblyName>ThighPhysicsController</AssemblyName>
-    <TargetFramework>net20</TargetFramework>
+    <TargetFramework Condition="'$(Game)' == 'KK'">net20</TargetFramework>
+    <TargetFramework Condition="'$(Game)' == 'KKS'">net471</TargetFramework>
     <LangVersion>11.0</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
-  <PropertyGroup>
-    <GameRoot Condition="'$(KOIKATU_BUILD_GAME_ROOT)' != ''">$(KOIKATU_BUILD_GAME_ROOT)</GameRoot>
+  <PropertyGroup Condition="'$(Game)' == 'KK'">
+    <GameRoot Condition="'$(GameRoot)' == '' and '$(KOIKATU_BUILD_GAME_ROOT)' != ''">$(KOIKATU_BUILD_GAME_ROOT)</GameRoot>
     <GameRoot Condition="'$(GameRoot)' == ''">Z:\Koikatu</GameRoot>
+    <ManagedDirectory>Koikatu_Data\Managed</ManagedDirectory>
+    <CharacterApi>KKAPI</CharacterApi>
+    <ExtendedSave>ExtensibleSaveFormat</ExtendedSave>
+    <ExtendedSaveDirectory>KK_BepisPlugins</ExtendedSaveDirectory>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Game)' == 'KKS'">
+    <NuGetLockFilePath>packages.KKS.lock.json</NuGetLockFilePath>
+    <GameRoot Condition="'$(GameRoot)' == '' and '$(KKS_BUILD_GAME_ROOT)' != ''">$(KKS_BUILD_GAME_ROOT)</GameRoot>
+    <GameRoot Condition="'$(GameRoot)' == ''">H:\KKS\KKS</GameRoot>
+    <ManagedDirectory>KoikatsuSunshine_Data\Managed</ManagedDirectory>
+    <CharacterApi>KKSAPI</CharacterApi>
+    <ExtendedSave>KKS_ExtensibleSaveFormat</ExtendedSave>
+    <ExtendedSaveDirectory>KKS_BepisPlugins</ExtendedSaveDirectory>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="BepInEx">
@@ -23,21 +38,31 @@
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine">
-      <HintPath>$(GameRoot)\Koikatu_Data\Managed\UnityEngine.dll</HintPath>
+      <HintPath>$(GameRoot)\$(ManagedDirectory)\UnityEngine.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="Assembly-CSharp">
-      <HintPath>$(GameRoot)\Koikatu_Data\Managed\Assembly-CSharp.dll</HintPath>
+      <HintPath>$(GameRoot)\$(ManagedDirectory)\Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="KKAPI">
-      <HintPath>$(GameRoot)\BepInEx\plugins\KKAPI.dll</HintPath>
+    <Reference Include="$(CharacterApi)">
+      <HintPath>$(GameRoot)\BepInEx\plugins\$(CharacterApi).dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="ExtensibleSaveFormat">
-      <HintPath>$(GameRoot)\BepInEx\plugins\KK_BepisPlugins\ExtensibleSaveFormat.dll</HintPath>
+    <Reference Include="$(ExtendedSave)">
+      <HintPath>$(GameRoot)\BepInEx\plugins\$(ExtendedSaveDirectory)\$(ExtendedSave).dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="System.Xml" />
   </ItemGroup>
+  <ItemGroup Condition="'$(Game)' == 'KKS'">
+    <!-- KKS uses Unity 2018's modular assemblies, unlike KK's UnityEngine.dll. -->
+    <Reference Include="UnityEngine.CoreModule;UnityEngine.IMGUIModule;UnityEngine.TextRenderingModule;UnityEngine.UIModule;UnityEngine.PhysicsModule;UnityEngine.InputLegacyModule">
+      <HintPath>$(GameRoot)\$(ManagedDirectory)\%(Identity).dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+  <Target Name="ValidateGameEdition" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(Game)' != 'KK' and '$(Game)' != 'KKS'" Text="Game must be KK or KKS." />
+  </Target>
 </Project>

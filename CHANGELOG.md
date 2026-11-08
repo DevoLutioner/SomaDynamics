@@ -1,5 +1,19 @@
 # 更新日志（CHANGELOG）
 
+## 1.0.3.10 KKS 补充发行（2026-11-08）
+
+- 修复 [Issue #15](https://github.com/DevoLutioner/SomaDynamics/issues/15)：原 1.0.3.10
+  发行只提供 KK 构建，放入 KKS 时，KKAPI、存档库和旧 Unity 类型引用无法在 KKS
+  运行时解析，导致 `ThighPhysicsControllerPlugin` 无法实例化。
+- 从同一份当前源码提供 `SomaDynamics_KKS_1.0.3.10.zip` 及 SHA-256；KKS 构建使用
+  net471、KKSAPI、KKS_ExtensibleSaveFormat 和 Unity 2018 模块化程序集。
+  插件版本、GUID、卡片扩展数据格式与物理参数保持 1.0.3.10。
+- 构建脚本新增 `-Game KK|KKS`，默认 KK，按游戏隔离编译输出和中间文件；打包前检查
+  DLL 的游戏 API、存档库、运行时及 Unity 类型引用，`-SkipTests` 也保留此检查。
+- 隔离的 KKS Unity 启动验证重现旧 KK DLL 的实例化失败；新 KKS DLL 完成插件初始化、
+  Harmony 补丁注册和运行时更新。此验证覆盖启动加载，角色视觉效果、保存重载与 FPS
+  仍需在实际角色场景中验收。
+
 ## 1.0.3.10（2026-10-20）
 
 - 新增默认开启的「男性角色默认关闭 / Disable males by default」开关，位于默认值面板及

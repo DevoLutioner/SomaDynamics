@@ -10,7 +10,8 @@ DynamicBone 碰撞链。显示品牌为 Soma Dynamics，内部标识沿用 Thigh
 ```text
 FleshPhysicsController\
 ├─ src\ThighPhysicsController\      插件 C# 源码（项目名沿用 ThighPhysicsController）
-│  ├─ ThighPhysicsController.csproj  net20 目标，引用游戏程序集
+│  ├─ Directory.Build.props        按 KK/KKS 隔离 bin/obj
+│  ├─ ThighPhysicsController.csproj  KK net20 / KKS net471，引用对应游戏程序集
 │  ├─ FleshPart.cs                  三个自定义物理部位的骨骼定义
 │  ├─ FleshParameterRanges.cs       UI/卡片/XML 的统一参数边界
 │  ├─ ThighParams.cs                参数模型 + 卡片序列化（v61）
@@ -30,10 +31,12 @@ FleshPhysicsController\
 │  ├─ WindowsFileDialog.cs          Windows 保存/打开对话框（P/Invoke）
 │  └─ Presets\                      用户 XML 预设的可选发布目录（默认不内置）
 ├─ tests\ParameterModel.Tests\      无游戏运行时的参数模型测试
+├─ tests\AssemblyCompatibility.Tests\  检查 DLL 的游戏与 Unity 类型引用
 ├─ tools\Summarize-FleshPerformance.ps1  按部位/求解器汇总 CPU 微秒基线
 ├─ tools\Build-ThighPhysicsController.ps1  构建 + 打包 + SHA-256
 ├─ packaging\SomaDynamics_1.0.3.10\ 发行目录（含 README.zh-CN.md、CHANGELOG.md）
 ├─ packaging\SomaDynamics_1.0.3.10.zip + .sha256
+├─ packaging\SomaDynamics_KKS_1.0.3.10.zip + .sha256
 ├─ README.md                        用户/功能说明
 ├─ CHANGELOG.md                     更新日志
 └─ DEVELOPMENT.md                   本文档
@@ -46,7 +49,8 @@ FleshPhysicsController\
 - 显示名：Soma Dynamics（中文名“形体动力学控制器”）
 - 卡片数据版本：61（v60 为已移除的胸臀实验 Spring；v54 为已归档坏版本）
 - XML 版本：4
-- 依赖：KKAPI `marco.kkapi`（不限制最低版本）、ExtensibleSaveFormat、0Harmony
+- 依赖：BepInEx 5、0Harmony；KK 使用 KKAPI 与 ExtensibleSaveFormat，KKS 使用 KKSAPI 与
+  KKS_ExtensibleSaveFormat。两版角色 API 的依赖 GUID 都是 `marco.kkapi`（不限制最低版本）。
 
 ## 部位与骨骼
 
@@ -65,26 +69,44 @@ FleshPhysicsController\
 
 ## 构建
 
-需要 .NET 8 SDK，以及游戏根目录（默认 `Z:\Koikatu`，可用 `KOIKATU_BUILD_GAME_ROOT` 覆盖）：
+需要 .NET 8 SDK，以及对应游戏根目录中的程序集。两版从本仓库同一份源码构建：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-ThighPhysicsController.ps1
+# KK 是默认构建
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-ThighPhysicsController.ps1 -Game KK
+
+# Koikatsu Sunshine
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-ThighPhysicsController.ps1 -Game KKS
 ```
 
-构建默认先运行 `tests\ParameterModel.Tests`，验证三个部位的基线、简单参数往返、
-单调性、卡片限幅与旧字段清理；只排查构建工具时可临时传 `-SkipTests`。
+| 构建 | 目标框架 | 默认游戏目录 | 游戏目录环境变量 | API / 存档程序集 |
+| --- | --- | --- | --- | --- |
+| KK | net20 | `Z:\Koikatu` | `KOIKATU_BUILD_GAME_ROOT` | `KKAPI` / `ExtensibleSaveFormat` |
+| KKS | net471 | `H:\KKS\KKS` | `KKS_BUILD_GAME_ROOT` | `KKSAPI` / `KKS_ExtensibleSaveFormat` |
+
+`-GameRoot` 可显式覆盖目录。KKS 引用 `KoikatsuSunshine_Data\Managed` 中的 Unity 2018
+模块化程序集。`bin\KK` / `bin\KKS` 与 `obj\KK` / `obj\KKS` 分别保存两版输出与
+中间文件，防止先后构建时复用另一版的引用或 DLL。
+
+构建默认运行参数模型、性能/服装安全契约及运行时集成回归。参数模型覆盖三个部位的基线、
+简单参数往返、单调性、卡片限幅与旧字段清理。只排查构建工具时可临时传 `-SkipTests`；
+版本、UI、原生链实时应用安全契约及程序集兼容性检查始终执行。
+
+`tools/Test-FleshAssemblyCompatibility.ps1 -Game KK|KKS -PluginDll <路径>` 使用 PE 元数据
+检查实际产物，拒绝另一游戏的 API、存档程序集、mscorlib 版本和 Unity 类型作用域。
+它能检出 Issue #15 的错误发行包，但不替代 Unity 中的真实实例化验证。
 
 插件不包含自动载入场景或动作驱动。静态参数测试随正式构建执行；运行日志可用现有离线
 汇总脚本分析。旧 Mono 不提供精确的逐线程分配计数，因此不能把观测到的零堆增量表述为
 “绝对零分配”。
 
-产物：`packaging\SomaDynamics_1.0.3.10\`、ZIP、SHA-256。构建脚本会做版本、UI、
-胸臀 Spring 清除和原生链实时应用安全契约检查。
+产物分别为 `packaging\SomaDynamics_1.0.3.10\` 和
+`packaging\SomaDynamics_KKS_1.0.3.10\`，并生成各自的 ZIP 与 SHA-256。
 
 ## 安装与测试
 
-- 安装：把 `packaging\SomaDynamics_1.0.3.10\BepInEx\plugins\ThighPhysicsController\`
-  覆盖到游戏 `BepInEx\plugins\ThighPhysicsController\`。
+- 安装：从匹配游戏的发行目录取 `BepInEx\plugins\ThighPhysicsController\`，
+  覆盖到对应游戏同名目录，活动 DLL 只保留一份。
 - 测试：启动 `CharaStudio.exe`，Insert 打开面板，加载角色卡。
 - 日志：`Z:\Koikatu\output_log.txt`（插件 Debug 日志也写到这）。
 - 调试配置：`Z:\Koikatu\BepInEx\config\codex.koikatumanager.thighphysicscontroller.cfg`
@@ -109,6 +131,11 @@ Flesh physics [cf_s_thigh01_L]: applied=(x,y,z) mag=... rot=(...)
 
 ## 当前状态与决策记录
 
+- 2026-11-08，Issue #15：原发行的 KK 1.0.3.10 DLL 在隔离 KKS Unity 中重现
+  `could not be instantiated`；旧 KKS 1.0.3.8 作为成功对照。补充的 KKS 1.0.3.10 DLL
+  通过引用检查，并完成实际插件初始化、`Native breast and Studio pose-change patches installed`
+  和运行时更新。验证范围为启动加载；角色视觉效果、保存重载与 FPS 尚未由此次测试确认。
+  两版继续使用同一 GUID、卡片数据 v61 和 XML v4；此次补充处理构建与打包。
 - 1.0.3.10：`DisableMaleByDefault` 默认 true。男性套卡在 Force enable/卡片/会话记忆/默认预设
   之后关闭五部位；maintainState 换装保留手动启用。`ApplyNativeBody` 在胸臀全关时恢复旧接管并
   退出，不再创建空接管。Config SettingChanged 只排队，由 Update 在主线程关闭已加载男性。
