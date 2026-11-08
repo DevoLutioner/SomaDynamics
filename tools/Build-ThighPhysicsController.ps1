@@ -1,7 +1,11 @@
 ﻿param(
+    [ValidateSet('KK', 'KKS')]
+    [string]$Game = 'KK',
+
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
 
+    [ValidatePattern('^\d+\.\d+\.\d+\.\d+$')]
     [string]$Version = '1.0.3.10',
 
     [string]$GameRoot = '',
@@ -14,20 +18,26 @@
 )
 
 $ErrorActionPreference = 'Stop'
+$OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+$Game = $Game.ToUpperInvariant()
 
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $project = Join-Path $repoRoot 'src\ThighPhysicsController\ThighPhysicsController.csproj'
-$outputDll = Join-Path $repoRoot "src\ThighPhysicsController\bin\$Configuration\ThighPhysicsController.dll"
+$outputDll = Join-Path $repoRoot "src\ThighPhysicsController\bin\$Game\$Configuration\ThighPhysicsController.dll"
 
 if ([string]::IsNullOrWhiteSpace($GameRoot)) {
-    $GameRoot = $env:KOIKATU_BUILD_GAME_ROOT
+    if ($Game -eq 'KKS') { $GameRoot = $env:KKS_BUILD_GAME_ROOT }
+    else { $GameRoot = $env:KOIKATU_BUILD_GAME_ROOT }
 }
 if ([string]::IsNullOrWhiteSpace($GameRoot)) {
-    $GameRoot = 'Z:\Koikatu'
+    if ($Game -eq 'KKS') { $GameRoot = 'H:\KKS\KKS' }
+    else { $GameRoot = 'Z:\Koikatu' }
 }
 $GameRoot = [IO.Path]::GetFullPath($GameRoot).TrimEnd('\')
 
-$staging = Join-Path $repoRoot "packaging\SomaDynamics_$Version"
+$packageName = "SomaDynamics_$Version"
+if ($Game -eq 'KKS') { $packageName = "SomaDynamics_KKS_$Version" }
+$staging = Join-Path $repoRoot "packaging\$packageName"
 $pluginDir = Join-Path $staging 'BepInEx\plugins\ThighPhysicsController'
 $presetsDir = Join-Path $pluginDir 'Presets'
 $sourcePresets = Join-Path $repoRoot 'src\ThighPhysicsController\Presets'
@@ -37,9 +47,9 @@ $readme = Join-Path $repoRoot 'README.md'
 $changelog = Join-Path $repoRoot 'CHANGELOG.md'
 $userGuide = Join-Path $repoRoot 'docs\USER_GUIDE.zh-CN.md'
 
-Write-Host "Building Soma Dynamics $Version (game root: $GameRoot)"
-$pluginText = Get-Content -LiteralPath $pluginSource -Raw
-$nativeBridgeText = Get-Content -LiteralPath $nativeBridgeSource -Raw
+Write-Host "Building Soma Dynamics $Game $Version (game root: $GameRoot)"
+$pluginText = Get-Content -LiteralPath $pluginSource -Raw -Encoding utf8
+$nativeBridgeText = Get-Content -LiteralPath $nativeBridgeSource -Raw -Encoding utf8
 if ($pluginText -notmatch '_harmony\.PatchAll\(Assembly\.GetExecutingAssembly\(\)\)') {
     throw 'Native BPC compatibility patches are declared but not registered with Harmony.'
 }
@@ -64,8 +74,8 @@ $nativeApplyText = $nativeBridgeText.Substring($applyStart, $restoreStart - $app
 if ($nativeApplyText -match 'ResetPosition|ResetParticlesPosition|SetWeight') {
     throw 'Native live-apply path must not directly reset DynamicBone particles or weight.'
 }
-$bodySourceText = (Get-Content -LiteralPath (Join-Path $repoRoot 'src\ThighPhysicsController\NativeBodyParams.cs') -Raw) +
-    (Get-Content -LiteralPath (Join-Path $repoRoot 'src\ThighPhysicsController\ThighController.cs') -Raw) +
+$bodySourceText = (Get-Content -LiteralPath (Join-Path $repoRoot 'src\ThighPhysicsController\NativeBodyParams.cs') -Raw -Encoding utf8) +
+    (Get-Content -LiteralPath (Join-Path $repoRoot 'src\ThighPhysicsController\ThighController.cs') -Raw -Encoding utf8) +
     $pluginText
 if ($bodySourceText -match '\bSpringMode\b|DrawNativeSpringEditor|BreastSpringPart|ButtSpringPart') {
     throw 'Removed breast/butt Spring implementation is still present in source.'
@@ -95,9 +105,18 @@ if (-not $SkipTests) {
 # skipped CoreCompile after source edits and shipped stale DLLs, so force a
 # from-scratch rebuild for a deterministic release artifact.
 $projectDir = Join-Path $repoRoot 'src\ThighPhysicsController'
-Remove-Item -LiteralPath (Join-Path $projectDir 'bin') -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath (Join-Path $projectDir 'obj') -Recurse -Force -ErrorAction SilentlyContinue
-& dotnet build $project -c $Configuration -p:KOIKATU_BUILD_GAME_ROOT=$GameRoot
+function Remove-RepositoryDirectory {
+    param([string]$Path)
+    $resolved = [IO.Path]::GetFullPath($Path)
+    $allowedRoot = [IO.Path]::GetFullPath($repoRoot).TrimEnd('\') + '\'
+    if (-not $resolved.StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to remove directory outside repository: $resolved"
+    }
+    if (Test-Path -LiteralPath $resolved) { Remove-Item -LiteralPath $resolved -Recurse -Force }
+}
+Remove-RepositoryDirectory (Join-Path $projectDir "bin\$Game")
+Remove-RepositoryDirectory (Join-Path $projectDir "obj\$Game")
+& dotnet build $project -c $Configuration "-p:Game=$Game" "-p:GameRoot=$GameRoot"
 if ($LASTEXITCODE -ne 0) {
     throw "Build failed with exit code $LASTEXITCODE"
 }
@@ -105,12 +124,16 @@ $builtVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($outputDll).FileVe
 if ($builtVersion -ne $Version) {
     throw "Built DLL file version '$builtVersion' does not match package version '$Version'."
 }
+# Always check the edition, even with -SkipTests: KK and KKS share C# namespaces
+# and the plugin GUID but use incompatible runtime/Unity/API assembly identities.
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'Test-FleshAssemblyCompatibility.ps1') -Game $Game -PluginDll $outputDll
+if ($LASTEXITCODE -ne 0) { throw "Wrong-game assembly detected for $Game." }
 
 if (Test-Path $staging) {
     if (-not $Force) {
         throw "Staging directory already exists: $staging (pass -Force to replace)"
     }
-    Remove-Item -LiteralPath $staging -Recurse -Force
+    Remove-RepositoryDirectory $staging
 }
 
 New-Item -ItemType Directory -Path $presetsDir -Force | Out-Null
@@ -122,6 +145,14 @@ if ($presetFiles.Count -gt 0) {
 Copy-Item -LiteralPath $readme -Destination (Join-Path $staging 'README.zh-CN.md')
 Copy-Item -LiteralPath $changelog -Destination (Join-Path $staging 'CHANGELOG.md')
 Copy-Item -LiteralPath $userGuide -Destination (Join-Path $staging 'USER-GUIDE.zh-CN.md')
+$packageManifest = @(
+    "Soma Dynamics $Version",
+    "Game: $Game",
+    "Package: $packageName.zip",
+    "ThighPhysicsController.dll SHA256: $((Get-FileHash -LiteralPath $outputDll -Algorithm SHA256).Hash.ToLowerInvariant())",
+    'Install the package for your game edition; KK and KKS DLLs are not interchangeable.'
+)
+Set-Content -LiteralPath (Join-Path $staging 'PACKAGE-MANIFEST.txt') -Value $packageManifest -Encoding utf8
 
 # Smoke checks against the freshly built DLL. Metadata strings are UTF-8, user-facing
 # string literals are UTF-16LE in the #US heap, so search both byte encodings.
@@ -162,7 +193,7 @@ foreach ($marker in @($Version, 'Soma Dynamics', 'Global controls',
 Write-Host "Staged: $staging"
 
 if (-not $SkipArchive) {
-    $zip = Join-Path $repoRoot "packaging\SomaDynamics_$Version.zip"
+    $zip = Join-Path $repoRoot "packaging\$packageName.zip"
     if (Test-Path $zip) {
         if (-not $Force) {
             throw "Archive already exists: $zip (pass -Force to replace)"

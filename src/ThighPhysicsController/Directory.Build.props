@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup>
+    <Game Condition="'$(Game)' == ''">KK</Game>
+    <!-- Set before the SDK imports so KK and KKS never share restore/compiler state. -->
+    <BaseIntermediateOutputPath>obj\$(Game)\</BaseIntermediateOutputPath>
+    <BaseOutputPath>bin\$(Game)\</BaseOutputPath>
+    <!-- Exclude every edition's generated C# from the SDK source glob. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);bin\**;obj\**</DefaultItemExcludes>
+  </PropertyGroup>
+</Project>

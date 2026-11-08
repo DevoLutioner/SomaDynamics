@@ -1,7 +1,8 @@
 # Soma Dynamics｜形体动力学控制器 v1.0.3.10
 
-Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管理大腿、手臂、
-腹部、胸部和臀部。界面以少量感知参数为主，同时保留逐骨高级调节。
+Soma Dynamics 是 Koikatu / Koikatsu Party（KK）与 Koikatsu Sunshine（KKS）的统一形体
+物理控制器，分别提供匹配游戏的安装包，管理大腿、手臂、腹部、胸部和臀部。
+界面以少量感知参数为主，同时保留逐骨高级调节。
 
 内部 GUID、DLL、安装目录和角色卡数据键继续沿用 `ThighPhysicsController`，以兼容旧卡、
 配置和现有安装。
@@ -10,7 +11,7 @@ Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管�
 
 | 版本 | 用户可见修复 |
 | --- | --- |
-| 1.0.3.10 | 新增默认开启的“男性角色默认关闭”：男性套卡不自动启用五部位；可手动开启，换装保留选择，重新载入卡片恢复默认。 |
+| 1.0.3.10 | 新增默认开启的“男性角色默认关闭”：男性套卡不自动启用五部位；可手动开启，换装保留选择，重新载入卡片恢复默认。2026-11-08 补充 KKS 专用构建，修复误用 KK 构建导致的工作室实例化失败（#15）。 |
 | 1.0.3.9 | 对 BP 等外部 DynamicBone 驱动的重叠链让权，避免 Spring/Chain 和复位覆盖外部状态；缓存骨骼查找并限制缺骨重试。实机验收见验证记录。 |
 | 1.0.3.8 | 升级 Chain 低频回弹曲线并提高默认 Thigh 弹性；不增加粒子循环开销，恢复更明显的摆动响应。 |
 | 1.0.0.0 | 正式统一大腿、手臂、腹部、胸部与臀部管理；胸臀改为安全接管游戏原生碰撞链，移除会重复解算的实验 Spring。 |
@@ -47,7 +48,18 @@ Soma Dynamics 是 Koikatu / Koikatsu Party 的统一形体物理控制器，管�
 
 [`docs/USER_GUIDE.zh-CN.md`](docs/USER_GUIDE.zh-CN.md)
 
-1. 关闭 `CharaStudio.exe` 和 `Koikatu.exe`。
+先从 [Releases](https://github.com/DevoLutioner/SomaDynamics/releases/tag/v1.0.3.10)
+选择与游戏匹配的包：
+
+| 游戏 | 安装包 | 游戏内需要的依赖 |
+| --- | --- | --- |
+| Koikatu / Koikatsu Party（KK） | `SomaDynamics_1.0.3.10.zip` | `KKAPI.dll`、`KK_BepisPlugins/ExtensibleSaveFormat.dll` |
+| Koikatsu Sunshine（KKS） | `SomaDynamics_KKS_1.0.3.10.zip` | `KKSAPI.dll`、`KKS_BepisPlugins/KKS_ExtensibleSaveFormat.dll` |
+
+两版都需要 BepInEx 5，沿用同一插件 GUID 与卡片扩展数据格式。DLL 必须匹配游戏；
+把 KK 包或 DLL 改名为 KKS 不能转换版本。
+
+1. 关闭 `CharaStudio.exe` 和对应的 `Koikatu.exe` / `KoikatsuSunshine.exe`。
 2. 将压缩包中的 `BepInEx\plugins\ThighPhysicsController\` 合并到游戏同名目录。
 3. 启动游戏或 Studio，加载角色后按 `Insert` 打开面板。
 
@@ -155,17 +167,33 @@ v54 是已归档的坏版本，不应回滚使用。
 
 ## 构建
 
-在仓库根目录执行：
+需要 .NET 8 SDK 及对应游戏的程序集，在仓库根目录执行：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-ThighPhysicsController.ps1
+# KK（默认）：net20，默认游戏目录 Z:\Koikatu
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-ThighPhysicsController.ps1 -Game KK
+
+# KKS：net471，默认游戏目录 H:\KKS\KKS
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Build-ThighPhysicsController.ps1 -Game KKS
 ```
 
-正式构建会运行参数模型测试、胸臀实时应用安全契约、品牌/UI 字符串烟测，并生成：
+两版可分别通过 `-GameRoot` 或 `KOIKATU_BUILD_GAME_ROOT` / `KKS_BUILD_GAME_ROOT`
+指定游戏目录。源代码共用，构建输出与中间文件按 `KK` / `KKS` 隔离。
+
+正式构建会运行参数模型与运行时集成测试、胸臀实时应用安全契约、品牌/UI 字符串烟测；
+生成 DLL 后还会检查游戏 API、存档库及 Unity 类型引用，防止打包错误版本。
+即使传入 `-SkipTests`，程序集兼容性检查仍会执行。
+
+KK 产物：
 
 - `packaging\SomaDynamics_1.0.3.10\`
 - `packaging\SomaDynamics_1.0.3.10.zip`
 - `packaging\SomaDynamics_1.0.3.10.zip.sha256`
+
+KKS 产物使用 `SomaDynamics_KKS_1.0.3.10` 前缀，具有相同的目录、ZIP 和 SHA-256 文件结构。
+
+Issue #15 的失败对照、实际 KKS Unity 加载结果及验证范围见
+[`docs/ISSUE-15-VALIDATION.md`](docs/ISSUE-15-VALIDATION.md)。
 
 Issue #12/#13 的自动化复现、修复范围与待完成的实机验收见
 [`docs/ISSUE-12-13-VALIDATION.md`](docs/ISSUE-12-13-VALIDATION.md)。
